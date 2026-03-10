@@ -943,7 +943,7 @@ public static PocoJsonSerializerStrategy PocoJsonSerializerStrategy { get; }
 
 ## 许可证
 
-
+ Apache-2.0 license 以当前项目指定的许可协议为准
 
 ---
 
