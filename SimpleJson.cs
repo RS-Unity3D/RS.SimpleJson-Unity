@@ -485,7 +485,7 @@ namespace RS.SimpleJsonAOT
     }
 }
 
-namespace Octokit
+namespace RS.SimpleJsonAOT
 {
     /// <summary>
     /// This class encodes and decodes JSON strings.
