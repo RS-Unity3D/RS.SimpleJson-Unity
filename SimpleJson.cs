@@ -59,7 +59,8 @@
 //NOTE:Private fields marked with JsonInclude are serialized when onlyPublic=false
 //Private properties marked with JsonInclude are serialized when onlyPublic=false
 //By default (onlyPublic=true), private members are not included
-#define SIMPLE_JSON_OnlyPublicProperty
+//#define SIMPLE_JSON_OnlyPublicProperty
+
 //NOTE:Single-threaded mode, such as WebGL, does not consider multi-threading.
 //#define SINGLE_THREADED
 
@@ -70,6 +71,8 @@
 #if NETFX_CORE
 #define SIMPLE_JSON_TYPEINFO
 #endif
+
+//NOTE:Unity support
 #if UNITY_4 || UNITY_5 || UNITY_5_3_OR_NEWER || UNITY_2017_1_OR_NEWER
 #define SIMPLE_JSON_UNITY
 //unity webgl does not support multi-threading
@@ -84,6 +87,9 @@
 #if SIMPLE_JSON_UNITY
 using UnityEngine;
 #endif
+
+
+
 using System;
 using System.CodeDom.Compiler;
 using System.Collections;
@@ -679,9 +685,10 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
         ///// <param name="lowerCase"></param>
         ///// <param name="onlyPublic"></param>
         ///// <returns></returns>
-        //public static string ToJson<T>(this T model, bool lowerCase = false, bool onlyPublic = true) {
+        //public static string ToJson<T>(this T model,bool lowerCase = false,bool onlyPublic = true)
+        //{
 
-        //    return SerializeObject(model, JsonSerializerExtensions.GetStrategy(lowerCase, onlyPublic));
+        //    return SerializeObject(model,SimpleJsonSerializerExtensions.GetStrategy(lowerCase,onlyPublic));
         //}
         ///// <summary>
         ///// Specify the deserialization method that ignores the case of attributes/fields
@@ -691,8 +698,9 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
         ///// <param name="lowerCase"></param>
         ///// <param name="onlyPublic"></param>
         ///// <returns></returns>
-        //public static T FromJson<T>(this string json, bool lowerCase = false, bool onlyPublic = true) {
-        //    return DeserializeObject<T>(json, JsonSerializerExtensions.GetStrategy(lowerCase, onlyPublic));
+        //public static T FromJson<T>(this string json,bool lowerCase = false,bool onlyPublic = true)
+        //{
+        //    return DeserializeObject<T>(json,SimpleJsonSerializerExtensions.GetStrategy(lowerCase,onlyPublic));
         //}
 #endif
         /// <summary>
@@ -1205,6 +1213,11 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
                 success = SerializeString(stringValue,builder);
             else
             {
+                if (value == null)
+                {
+                    builder.Append("null");
+                    return true;
+                }
                 IDictionary<string,object> dict = value as IDictionary<string,object>;
                 //IDictionary<string, List<string>> dict2 = value as IDictionary<string, List<string>>;
                 bool isTypeDictionary = false;
@@ -1253,8 +1266,6 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
                         // ✅ 修复：添加 char 类型支持
                         else if (value is char)
                             SerializeString(new string((char)value,1),builder);
-                        else if (value == null)
-                            builder.Append("null");
                         else
                         {
                             object serializedObject;
@@ -1714,6 +1725,11 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
 
         public virtual bool TrySerializeNonPrimitiveObject(object input,out object output)
         {
+            if (input == null)
+            {
+                output = null;
+                return false;
+            }
             return TrySerializeKnownTypes(input,out output) || TrySerializeUnknownTypes(input,out output);
         }
 
@@ -1775,6 +1791,15 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
                     if (type == typeof(string))
                         return str;
 
+                    if (type.IsEnum)
+                    {
+                        if (double.TryParse(str, out double enumValue))
+                        {
+                            return Enum.ToObject(type, Convert.ChangeType(enumValue, Enum.GetUnderlyingType(type), CultureInfo.InvariantCulture));
+                        }
+                        return Enum.Parse(type, str, true);
+                    }
+
                     return Convert.ChangeType(str,type,CultureInfo.InvariantCulture);
                 }
                 else
@@ -1800,9 +1825,16 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
                 return value;
             if ((valueIsDouble && type != typeof(double)) || (valueIsULong && type != typeof(ulong)) || (valueIsLong && type != typeof(long)))
             {
-                obj = type == typeof(int) || type == typeof(uint) || type == typeof(long) || type == typeof(ulong) || type == typeof(double) || type == typeof(float) || type == typeof(bool) || type == typeof(decimal) || type == typeof(byte) || type == typeof(short)
-                            ? Convert.ChangeType(value,type,CultureInfo.InvariantCulture)
-                            : value;
+                if (type.IsEnum)
+                {
+                    obj = Enum.ToObject(type, Convert.ChangeType(value, Enum.GetUnderlyingType(type), CultureInfo.InvariantCulture));
+                }
+                else
+                {
+                    obj = type == typeof(int) || type == typeof(uint) || type == typeof(long) || type == typeof(ulong) || type == typeof(double) || type == typeof(float) || type == typeof(bool) || type == typeof(decimal) || type == typeof(byte) || type == typeof(short)
+                                ? Convert.ChangeType(value,type,CultureInfo.InvariantCulture)
+                                : value;
+                }
             }
             else
             {
@@ -1908,12 +1940,22 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
 
         protected virtual object SerializeEnum(Enum p)
         {
-            return Convert.ToDouble(p,CultureInfo.InvariantCulture);
+            return Convert.ToInt64(p,CultureInfo.InvariantCulture);
         }
 
         [SuppressMessage("Microsoft.Design","CA1007:UseGenericsWhereAppropriate",Justification = "Need to support .NET 2")]
         protected virtual bool TrySerializeKnownTypes(object input,out object output)
         {
+            if (input == null)
+            {
+                output = null;
+                return false;
+            }
+            Type inputType = input.GetType();
+            if (ReflectionUtils.IsNullableType(inputType))
+            {
+                inputType = Nullable.GetUnderlyingType(inputType);
+            }
             bool returnValue = true;
             //if (input is NPath || input is UriString)
             //    output = input.ToString();
@@ -1953,6 +1995,8 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
             //sgd:There might be a problem with directly ignoring case here. 直接在这里忽略大小写可能存在问题
             //IDictionary<string,object> obj = new JsonObject(StringComparer.OrdinalIgnoreCase);
             IDictionary<string,ReflectionUtils.GetDelegate> getters = GetCache[type];
+            if (getters == null)
+                return false;
             foreach (KeyValuePair<string,ReflectionUtils.GetDelegate> getter in getters)
             {
                 if (getter.Value != null)
@@ -2207,7 +2251,7 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
             this(true,true)
 #elif SIMPLE_JSON_PropertyToLowerCase && !SIMPLE_JSON_OnlyPublicProperty
             this(true,false)
-        
+
 #elif !SIMPLE_JSON_PropertyToLowerCase && !SIMPLE_JSON_OnlyPublicProperty
             this(false,false)
 #else
@@ -2677,7 +2721,8 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
 
         static ConstructorDelegate GetConstructorForValueType(Type type)
         {
-            return delegate (object[] args) {
+            return delegate (object[] args)
+            {
 #if UNITY_EDITOR || !AOT
                 return Activator.CreateInstance(type);
 #else
@@ -3038,7 +3083,7 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
     /// <summary>
     /// Json Serializer Extensions
     /// </summary>
-    public static class JsonSerializerExtensions
+    public static class SimpleJsonSerializerExtensions
     {
 #if SIMPLE_JSON_UNITY
         static UnitySerializationStrategy publicLowerCaseStrategy = new UnitySerializationStrategy(true,true);
