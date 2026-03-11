@@ -838,7 +838,7 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
         static IDictionary<string,object> ParseObject(char[] json,ref int index,ref bool success)
         {
             IDictionary<string,object> table = new JsonObject();
-            //直接忽略大写可能存在问题
+            //sgd:There might be a problem with directly ignoring case here. 直接在这里忽略大小写可能存在问题
             //IDictionary<string,object> table = new JsonObject(StringComparer.OrdinalIgnoreCase);
             int token;
 
@@ -1460,7 +1460,6 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
 
 #endif
 
-#if UNITY_EDITOR || !AOT
         private static readonly Dictionary<string,Type> _aotTypeRegistry = new Dictionary<string,Type>();
         private static readonly object _registryLock = new object();
 
@@ -1520,7 +1519,6 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
                 strategy.ClearCache();
             }
         }
-#endif
     }
 
     [GeneratedCode("simple-json","1.0.0")]
@@ -1825,7 +1823,7 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
                         Type genericType = typeof(Dictionary<,>).MakeGenericType(keyType,valueType);
                         dict = (IDictionary)ConstructorCache[genericType]();
 #else
-                        dict = CreateDictionaryForAot(keyType, valueType);
+                        dict = CreateDictionaryForAot(keyType,valueType);
 #endif
 
                         foreach (KeyValuePair<string,object> kvp in jsonObject)
@@ -1893,7 +1891,7 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
 #if UNITY_EDITOR || !AOT
                             list = (IList)(ConstructorCache[type] ?? ConstructorCache[typeof(List<>).MakeGenericType(innerType)])(jsonObject.Count);
 #else
-                            list = CreateListForAot(innerType, jsonObject.Count);
+                            list = CreateListForAot(innerType,jsonObject.Count);
 #endif
                             foreach (object o in jsonObject)
                                 list.Add(DeserializeObject(o,innerType));
@@ -2007,6 +2005,27 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
             if (keyType == typeof(string) && valueType == typeof(Guid))
                 return new Dictionary<string,Guid>();
 
+            // ✅ 修复：首先检查注册的AOT类型
+            string typeName = $"Dictionary<{keyType.Name},{valueType.Name}>";
+            Type registeredType = SimpleJson.GetRegisteredAotType(typeName);
+            if (registeredType != null)
+            {
+                try
+                {
+                    return (IDictionary)Activator.CreateInstance(registeredType);
+                }
+                catch
+                {
+                    try
+                    {
+                        return (IDictionary)FormatterServices.GetUninitializedObject(registeredType);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
             Type genericType = typeof(Dictionary<,>).MakeGenericType(keyType,valueType);
             try
             {
@@ -2062,6 +2081,27 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
                 return new List<DateTime>(capacity);
             if (elementType == typeof(Guid))
                 return new List<Guid>(capacity);
+
+            // ✅ 修复：首先检查注册的AOT类型
+            string typeName = $"List<{elementType.Name}>";
+            Type registeredType = SimpleJson.GetRegisteredAotType(typeName);
+            if (registeredType != null)
+            {
+                try
+                {
+                    return (IList)Activator.CreateInstance(registeredType,capacity);
+                }
+                catch
+                {
+                    try
+                    {
+                        return (IList)FormatterServices.GetUninitializedObject(registeredType);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
 
             Type genericType = typeof(List<>).MakeGenericType(elementType);
             try
@@ -2175,7 +2215,7 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
 #endif
         {
         }
-    public DefaultJsonSerializationStrategy(bool toLowerCase,bool onlyPublic)
+        public DefaultJsonSerializationStrategy(bool toLowerCase,bool onlyPublic)
         {
             this.toLowerCase = toLowerCase;
             this.onlyPublic = onlyPublic;
@@ -2241,7 +2281,7 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
                 return true;
             }
 #endif
-#endregion
+        #endregion
         //protected override bool CanAddField(FieldInfo field) {
         //    var canAdd = base.CanAddField(field);
         //    return canAdd && ((onlyPublic && field.IsPublic) || !onlyPublic);
@@ -2641,9 +2681,12 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
 #if UNITY_EDITOR || !AOT
                 return Activator.CreateInstance(type);
 #else
-                try {
+                try
+                {
                     return Activator.CreateInstance(type);
-                } catch {
+                }
+                catch
+                {
                     return FormatterServices.GetUninitializedObject(type);
                 }
 #endif
