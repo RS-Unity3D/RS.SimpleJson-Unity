@@ -47,7 +47,37 @@ SimpleJson-Unity 是一个专为Unity优化的轻量级JSON序列化/反序列�
 - ✅ 延迟StringBuilder创建（减少内存分配）
 
 ---
+SimpleJson
 
+Small and fast JSON library for .NET 2.0+/.NET4.0+ /.NET5.0+/ .NET Standard 2.0+ /SL4+/WP7+/Windows Store Apps/Portable Class Library and powershell. Includes support for dynamic in .NET 4.0+/.NET5.0+/.NET Standard 2.0+/SL4+/Windows Store Apps. Also includes support for DataContract and DataMember,JsonIgnore,JsonInclude,JsonAlias
+Using SimpleJson
+
+SimpleJson is not distributed as a compiled binary .dll file but rather as a single .cs file or a powershell module .psm1.
+
+Use nuget to add SimpleJson.cs file to your project.
+
+Install-Package SimpleJson
+
+Supported Platforms
+
+    .NET 2.0 / .NET 3.0 /  .NET 3.5 (Client Profile and Full Profile)
+    .NET 4.0 (Client Profile and Full Profile) /  .NET 4.5
+    .NET5 / .NET6 /.NET7 /.NET8 /.NET9 /.NET10
+    .NET Standard 2.0 /  .NET Standard 2.1 /.NET Core 3.0 or More
+    Windows 8 Store Apps
+    Silverlight 4
+    Silverlight 5
+    Windows Phone 7.0
+    Windows Phone 7.1 (Mango)
+    Windows Phone 8
+    IOS/Android
+    Portable Class Libraries (PCL)
+    Windows/Linux/MAC OS
+Note: By default SimpleJson expects System.Linq. If you are targeting older version of .NET framework (.net < 3.0 or WP7.0) you will need to add #define SIMPLE_JSON_NO_LINQ_EXPRESSION.
+
+If you want to use [DataContract], [DataMember(Name = "name")] or [IgnoreDataMember] make sure to add #define SIMPLE_JSON_DATACONTRACT.
+
+If you want to use IReadOnlyCollection<T> and IReadOnlyList<T> make sure to add #define SIMPLE_JSON_READONLY_COLLECTIONS.
 ## 安装
 
 ### 1. 复制文件
@@ -930,7 +960,7 @@ public static PocoJsonSerializerStrategy PocoJsonSerializerStrategy { get; }
 
 ## 版本历史
 
-### v1.0.0 (2025-03-10)
+### v1.1.0 
 - ✅ 完整的AOT/IL2CPP支持
 - ✅ WebGL单线程优化
 - ✅ 泛型Dictionary和List的AOT创建
@@ -938,7 +968,10 @@ public static PocoJsonSerializerStrategy PocoJsonSerializerStrategy { get; }
 - ✅ 反射缓存管理
 - ✅ 延迟StringBuilder创建
 - ✅ FormatterServices回退机制
-
+### v1.0.0 
+- ✅ key为string的字典支持
+- ✅ 一些
+- ✅ 
 ---
 
 ## 许可证
