@@ -2,11 +2,12 @@ using NUnit.Framework;
 using RS.SimpleJsonAOT;
 using System;
 using System.Collections.Generic;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
+using System.Reflection;
+using System.Runtime.Serialization;
 using CategoryAttribute = NUnit.Framework.CategoryAttribute;
 
 
@@ -34,21 +35,60 @@ namespace RS.SimpleJsonAOT.Test
             Console.WriteLine("\n╔════════════════════════════════════════════════════════════════╗");
             Console.WriteLine("║              所有测试完成！如有失败，请查看上面的输出              ║");
             Console.WriteLine("╚════════════════════════════════════════════════════════════════╝");
-            SimpleJsonFeatureTests2 test2 = new SimpleJsonFeatureTests2();
-            test2.TestCamelCasePreservesUppercaseSequence();
-            test2.TestCaseSensitivity_ExactMatch();
-            test2.TestCaseSensitivity_MismatchWithFallback();
-            test2.TestCaseSensitivity_MixedCase();
-            test2.TestCombined_AliasAndIgnore();
-            test2.TestJsonAlias_AcceptOriginalName();
-            test2.TestJsonAlias_DeserializationWithAlias();
-            test2.TestJsonAlias_SerializationUsesAlias();
-            test2.TestJsonIgnore_FieldsShouldBeExcluded();
-            test2.TestJsonIgnore_PropertiesShouldBeExcluded();
-            test2.TestJsonInclude_PrivateFieldsShouldBeIncluded();
-            test2.TestPascalToCamelCase_Deserialization();
-            test2.TestPascalToCamelCase_Serialization();
-            Console.ReadLine();  // 保持窗口打开以查看结果
+
+            RunNUnitTests();
+
+            Console.ReadLine();
+        }
+
+        static void RunNUnitTests()
+        {
+            Console.WriteLine("\n╔════════════════════════════════════════════════════════════════╗");
+            Console.WriteLine("║                    NUnit 测试套件执行                          ║");
+            Console.WriteLine("╚════════════════════════════════════════════════════════════════╝\n");
+
+            RunTestClass(new SimpleJsonFeatureTests2(), "SimpleJsonFeatureTests2");
+            RunTestClass(new SimpleJsonCoreTypeTests(), "SimpleJsonCoreTypeTests");
+            RunTestClass(new SimpleJsonCollectionTests(), "SimpleJsonCollectionTests");
+            RunTestClass(new SimpleJsonComplexTypeTests(), "SimpleJsonComplexTypeTests");
+            RunTestClass(new SimpleJsonEdgeCaseTests(), "SimpleJsonEdgeCaseTests");
+            RunTestClass(new SimpleJsonPerformanceTests(), "SimpleJsonPerformanceTests");
+
+            Console.WriteLine("\n╔════════════════════════════════════════════════════════════════╗");
+            Console.WriteLine("║                    所有 NUnit 测试执行完成                      ║");
+            Console.WriteLine("╚════════════════════════════════════════════════════════════════╝");
+        }
+
+        static void RunTestClass(object testInstance, string className)
+        {
+            Console.WriteLine($"\n┌─────────────────────────────────────────────────────────────┐");
+            Console.WriteLine($"│ 执行测试类: {className.PadRight(47)} │");
+            Console.WriteLine($"└─────────────────────────────────────────────────────────────┘");
+
+            var type = testInstance.GetType();
+            var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .Where(m => m.GetCustomAttributes(typeof(TestAttribute), false).Length > 0);
+
+            int passed = 0, failed = 0;
+            foreach (var method in methods)
+            {
+                try
+                {
+                    method.Invoke(testInstance, null);
+                    passed++;
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"  ✓ {method.Name}");
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"  ✗ {method.Name}: {ex.InnerException?.Message ?? ex.Message}");
+                }
+                Console.ResetColor();
+            }
+
+            Console.WriteLine($"\n  结果: {passed} 通过, {failed} 失败");
         }
 
         #region 测试模型
@@ -56,10 +96,10 @@ namespace RS.SimpleJsonAOT.Test
         public class UserWithIgnore
         {
             [JsonIgnore]
-            public string Password { get; set; }
+            public string Password { get; set; } = "";
 
-            public string Username { get; set; }
-            public string Email { get; set; }
+            public string Username { get; set; } = "";
+            public string Email { get; set; } = "";
 
             [JsonIgnore]
             private string InternalId = "secret";
@@ -70,10 +110,10 @@ namespace RS.SimpleJsonAOT.Test
         public class UserWithAlias
         {
             [JsonAlias("user_name")]
-            public string Username { get; set; }
+            public string Username { get; set; } = "";
 
             [JsonAlias("email_address")]
-            public string Email { get; set; }
+            public string Email { get; set; } = "";
 
             [JsonAlias("user_age",acceptOriginalName: true)]
             public int Age { get; set; }
@@ -83,8 +123,8 @@ namespace RS.SimpleJsonAOT.Test
 
         public class CaseSensitiveModel
         {
-            public string FirstName { get; set; }
-            public string LastName { get; set; }
+            public string FirstName { get; set; } = "";
+            public string LastName { get; set; } = "";
             public int Age { get; set; }
 
             public override string ToString() => $"{FirstName} {LastName}, {Age} years old";
@@ -106,9 +146,9 @@ namespace RS.SimpleJsonAOT.Test
             public int Id { get; set; }
 
             [JsonIgnore]
-            public string InternalSecret { get; set; }
+            public string InternalSecret { get; set; } = "";
 
-            public string Name { get; set; }
+            public string Name { get; set; } = "";
 
             public override string ToString() => $"ID: {Id}, Name: {Name}";
         }
@@ -148,8 +188,8 @@ namespace RS.SimpleJsonAOT.Test
             var restored = SimpleJson.DeserializeObject<UserWithIgnore>(json);
             Console.WriteLine($"反序列化后: {restored}");
             PrintTestResult(
-                restored.Username == "john_doe" && restored.Email == "john@example.com" && restored.Password == null,
-                "✓ 反序列化正确，Password 为 null",
+                restored.Username == "john_doe" && restored.Email == "john@example.com" && restored.Password == "",
+                "✓ 反序列化正确，Password 为默认值",
                 "✗ 反序列化有问题"
             );
 
@@ -457,15 +497,15 @@ namespace RS.SimpleJsonAOT.Test
         public class AliasTestModel
         {
             [JsonAlias("user_name")]
-            public string UserName { get; set; }
+            public string UserName { get; set; } = "";
 
             [JsonAlias("user_age",acceptOriginalName: true)]  // 同时接受原始名称
             public int Age { get; set; }
 
             [JsonAlias("email_address")]
-            public string Email { get; set; }
+            public string Email { get; set; } = "";
 
-            public string Description { get; set; }  // 无别名
+            public string Description { get; set; } = "";  // 无别名
         }
 
         /// <summary>
@@ -473,8 +513,8 @@ namespace RS.SimpleJsonAOT.Test
         /// </summary>
         public class CaseSensitivityTestModel
         {
-            public string FirstName { get; set; }
-            public string LastName { get; set; }
+            public string FirstName { get; set; } = "";
+            public string LastName { get; set; } = "";
             public int Age { get; set; }
         }
 
@@ -483,8 +523,8 @@ namespace RS.SimpleJsonAOT.Test
         /// </summary>
         public class PascalCaseModel
         {
-            public string FirstName { get; set; }
-            public string LastName { get; set; }
+            public string FirstName { get; set; } = "";
+            public string LastName { get; set; } = "";
             public int UserAge { get; set; }
             public bool IsActive { get; set; }
         }
@@ -754,8 +794,8 @@ namespace RS.SimpleJsonAOT.Test
         }
         public class URLModel
         {
-            public string HTTPServer { get; set; }  // 连续大写
-            public string XMLParser { get; set; }
+            public string HTTPServer { get; set; } = "";
+            public string XMLParser { get; set; } = "";
         }
         [Test]
         [Category("CamelCaseConversion")]
@@ -863,9 +903,9 @@ namespace RS.SimpleJsonAOT.Test
             public int Id { get; set; }
 
             [JsonIgnore]
-            public string Password { get; set; }
+            public string Password { get; set; } = "";
 
-            public string Username { get; set; }
+            public string Username { get; set; } = "";
         }
 
         [Test]
@@ -912,6 +952,1030 @@ namespace RS.SimpleJsonAOT.Test
         }
 
         #endregion
+    }
+
+    [TestFixture]
+    [Category("CoreTypes")]
+    public class SimpleJsonCoreTypeTests
+    {
+        #region 基础类型测试
+
+        [Test]
+        public void TestSerialize_Int()
+        {
+            int value = 42;
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Is.EqualTo("42"));
+        }
+
+        [Test]
+        public void TestDeserialize_Int()
+        {
+            string json = "42";
+            int result = SimpleJson.DeserializeObject<int>(json);
+            Assert.That(result, Is.EqualTo(42));
+        }
+
+        [Test]
+        public void TestSerialize_Double()
+        {
+            double value = 3.14159;
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Does.Contain("3.14"));
+        }
+
+        [Test]
+        public void TestDeserialize_Double()
+        {
+            string json = "3.14159";
+            double result = SimpleJson.DeserializeObject<double>(json);
+            Assert.That(result, Is.EqualTo(3.14159).Within(0.00001));
+        }
+
+        [Test]
+        public void TestSerialize_Bool_True()
+        {
+            bool value = true;
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Is.EqualTo("true"));
+        }
+
+        [Test]
+        public void TestSerialize_Bool_False()
+        {
+            bool value = false;
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Is.EqualTo("false"));
+        }
+
+        [Test]
+        public void TestDeserialize_Bool_True()
+        {
+            string json = "true";
+            bool result = SimpleJson.DeserializeObject<bool>(json);
+            Assert.That(result, Is.True);
+        }
+
+        [Test]
+        public void TestDeserialize_Bool_False()
+        {
+            string json = "false";
+            bool result = SimpleJson.DeserializeObject<bool>(json);
+            Assert.That(result, Is.False);
+        }
+
+        [Test]
+        public void TestSerialize_String()
+        {
+            string value = "Hello, World!";
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Is.EqualTo(@"""Hello, World!"""));
+        }
+
+        [Test]
+        public void TestDeserialize_String()
+        {
+            string json = @"""Hello, World!""";
+            string result = SimpleJson.DeserializeObject<string>(json);
+            Assert.That(result, Is.EqualTo("Hello, World!"));
+        }
+
+        [Test]
+        public void TestSerialize_String_WithEscape()
+        {
+            string value = "Line1\nLine2\tTabbed";
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Does.Contain("\\n"));
+            Assert.That(json, Does.Contain("\\t"));
+        }
+
+        [Test]
+        public void TestSerialize_Null()
+        {
+            object value = null;
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Is.EqualTo("null"));
+        }
+
+        [Test]
+        public void TestDeserialize_Null()
+        {
+            string json = "null";
+            object result = SimpleJson.DeserializeObject<object>(json);
+            Assert.That(result, Is.Null);
+        }
+
+        [Test]
+        public void TestSerialize_Long()
+        {
+            long value = 9223372036854775807L;
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Is.EqualTo("9223372036854775807"));
+        }
+
+        [Test]
+        public void TestSerialize_Float()
+        {
+            float value = 3.14f;
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Does.Contain("3.14"));
+        }
+
+        [Test]
+        public void TestSerialize_Decimal()
+        {
+            decimal value = 123.456m;
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Does.Contain("123.456"));
+        }
+
+        #endregion
+
+        #region DateTime 测试
+
+        [Test]
+        public void TestSerialize_DateTime()
+        {
+            var date = new DateTime(2024, 12, 25, 10, 30, 45);
+            string json = SimpleJson.SerializeObject(date);
+            Assert.That(json, Does.Contain("2024"));
+            Assert.That(json, Does.Contain("12"));
+            Assert.That(json, Does.Contain("25"));
+        }
+
+        [Test]
+        public void TestDeserialize_DateTime()
+        {
+            string json = @"""2024-12-25T10:30:45""";
+            DateTime result = SimpleJson.DeserializeObject<DateTime>(json);
+            Assert.That(result.Year, Is.EqualTo(2024));
+            Assert.That(result.Month, Is.EqualTo(12));
+            Assert.That(result.Day, Is.EqualTo(25));
+        }
+
+        [Test]
+        public void TestSerialize_DateTimeOffset()
+        {
+            var date = new DateTimeOffset(2024, 6, 15, 14, 30, 0, TimeSpan.FromHours(8));
+            string json = SimpleJson.SerializeObject(date);
+            Assert.That(json, Does.Contain("2024"));
+        }
+
+        #endregion
+
+        #region Enum 测试
+
+        public enum TestEnum
+        {
+            Value1,
+            Value2,
+            Value3
+        }
+
+        [Test]
+        public void TestSerialize_Enum()
+        {
+            TestEnum value = TestEnum.Value2;
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Is.EqualTo("1"));
+        }
+
+        [Test]
+        public void TestDeserialize_Enum()
+        {
+            string json = "1";
+            TestEnum result = SimpleJson.DeserializeObject<TestEnum>(json);
+            Assert.That(result, Is.EqualTo(TestEnum.Value2));
+        }
+
+        [Flags]
+        public enum TestFlags
+        {
+            None = 0,
+            Read = 1,
+            Write = 2,
+            Execute = 4
+        }
+
+        [Test]
+        public void TestSerialize_FlagsEnum()
+        {
+            TestFlags value = TestFlags.Read | TestFlags.Write;
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Is.EqualTo("3"));
+        }
+
+        #endregion
+
+        #region Nullable 测试
+
+        [Test]
+        public void TestSerialize_NullableInt_HasValue()
+        {
+            int? value = 42;
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Is.EqualTo("42"));
+        }
+
+        [Test]
+        public void TestSerialize_NullableInt_Null()
+        {
+            int? value = null;
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Is.EqualTo("null"));
+        }
+
+        [Test]
+        public void TestDeserialize_NullableInt_HasValue()
+        {
+            string json = "42";
+            int? result = SimpleJson.DeserializeObject<int?>(json);
+            Assert.That(result, Is.EqualTo(42));
+        }
+
+        [Test]
+        public void TestDeserialize_NullableInt_Null()
+        {
+            string json = "null";
+            int? result = SimpleJson.DeserializeObject<int?>(json);
+            Assert.That(result, Is.Null);
+        }
+
+        #endregion
+
+        #region Guid 测试
+
+        [Test]
+        public void TestSerialize_Guid()
+        {
+            Guid guid = Guid.Parse("12345678-1234-1234-1234-123456789abc");
+            string json = SimpleJson.SerializeObject(guid);
+            Assert.That(json, Does.Contain("12345678"));
+        }
+
+        [Test]
+        public void TestDeserialize_Guid()
+        {
+            string json = @"""12345678-1234-1234-1234-123456789abc""";
+            Guid result = SimpleJson.DeserializeObject<Guid>(json);
+            Assert.That(result, Is.EqualTo(Guid.Parse("12345678-1234-1234-1234-123456789abc")));
+        }
+
+        #endregion
+    }
+
+    [TestFixture]
+    [Category("Collections")]
+    public class SimpleJsonCollectionTests
+    {
+        #region Array 测试
+
+        [Test]
+        public void TestSerialize_IntArray()
+        {
+            int[] arr = { 1, 2, 3, 4, 5 };
+            string json = SimpleJson.SerializeObject(arr);
+            Assert.That(json, Is.EqualTo("[1,2,3,4,5]"));
+        }
+
+        [Test]
+        public void TestDeserialize_IntArray()
+        {
+            string json = "[1,2,3,4,5]";
+            int[] result = SimpleJson.DeserializeObject<int[]>(json);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Length, Is.EqualTo(5));
+            Assert.That(result[0], Is.EqualTo(1));
+            Assert.That(result[4], Is.EqualTo(5));
+        }
+
+        [Test]
+        public void TestSerialize_StringArray()
+        {
+            string[] arr = { "a", "b", "c" };
+            string json = SimpleJson.SerializeObject(arr);
+            Assert.That(json, Is.EqualTo(@"[""a"",""b"",""c""]"));
+        }
+
+        [Test]
+        public void TestSerialize_EmptyArray()
+        {
+            int[] arr = new int[0];
+            string json = SimpleJson.SerializeObject(arr);
+            Assert.That(json, Is.EqualTo("[]"));
+        }
+
+        [Test]
+        public void TestDeserialize_EmptyArray()
+        {
+            string json = "[]";
+            int[] result = SimpleJson.DeserializeObject<int[]>(json);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Length, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void TestSerialize_2DArray()
+        {
+            int[][] arr = { new[] { 1, 2 }, new[] { 3, 4 } };
+            string json = SimpleJson.SerializeObject(arr);
+            Assert.That(json, Is.EqualTo("[[1,2],[3,4]]"));
+        }
+
+        #endregion
+
+        #region List 测试
+
+        [Test]
+        public void TestSerialize_IntList()
+        {
+            var list = new List<int> { 1, 2, 3 };
+            string json = SimpleJson.SerializeObject(list);
+            Assert.That(json, Is.EqualTo("[1,2,3]"));
+        }
+
+        [Test]
+        public void TestDeserialize_IntList()
+        {
+            string json = "[1,2,3]";
+            List<int> result = SimpleJson.DeserializeObject<List<int>>(json);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Count, Is.EqualTo(3));
+            Assert.That(result[0], Is.EqualTo(1));
+        }
+
+        [Test]
+        public void TestSerialize_StringList()
+        {
+            var list = new List<string> { "hello", "world" };
+            string json = SimpleJson.SerializeObject(list);
+            Assert.That(json, Does.Contain("hello"));
+            Assert.That(json, Does.Contain("world"));
+        }
+
+        #endregion
+
+        #region Dictionary 测试
+
+        [Test]
+        public void TestSerialize_StringStringDictionary()
+        {
+            var dict = new Dictionary<string, string>
+            {
+                { "key1", "value1" },
+                { "key2", "value2" }
+            };
+            string json = SimpleJson.SerializeObject(dict);
+            Assert.That(json, Does.Contain("key1"));
+            Assert.That(json, Does.Contain("value1"));
+            Assert.That(json, Does.Contain("key2"));
+            Assert.That(json, Does.Contain("value2"));
+        }
+
+        [Test]
+        public void TestDeserialize_StringStringDictionary()
+        {
+            string json = @"{""key1"":""value1"",""key2"":""value2""}";
+            var result = SimpleJson.DeserializeObject<Dictionary<string, string>>(json);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Count, Is.EqualTo(2));
+            Assert.That(result["key1"], Is.EqualTo("value1"));
+            Assert.That(result["key2"], Is.EqualTo("value2"));
+        }
+
+        [Test]
+        public void TestSerialize_StringIntDictionary()
+        {
+            var dict = new Dictionary<string, int>
+            {
+                { "one", 1 },
+                { "two", 2 }
+            };
+            string json = SimpleJson.SerializeObject(dict);
+            Assert.That(json, Does.Contain("one"));
+            Assert.That(json, Does.Contain("1"));
+        }
+
+        [Test]
+        public void TestDeserialize_StringIntDictionary()
+        {
+            string json = @"{""one"":1,""two"":2}";
+            var result = SimpleJson.DeserializeObject<Dictionary<string, int>>(json);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result["one"], Is.EqualTo(1));
+            Assert.That(result["two"], Is.EqualTo(2));
+        }
+
+        [Test]
+        public void TestSerialize_IntStringDictionary()
+        {
+            var dict = new Dictionary<int, string>
+            {
+                { 1, "one" },
+                { 2, "two" }
+            };
+            Assert.Throws<Exception>(() => SimpleJson.SerializeObject(dict));
+        }
+
+        [Test]
+        public void TestSerialize_EmptyDictionary()
+        {
+            var dict = new Dictionary<string, string>();
+            string json = SimpleJson.SerializeObject(dict);
+            Assert.That(json, Is.EqualTo("{}"));
+        }
+
+        [Test]
+        public void TestDeserialize_EmptyDictionary()
+        {
+            string json = "{}";
+            var result = SimpleJson.DeserializeObject<Dictionary<string, string>>(json);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Count, Is.EqualTo(0));
+        }
+
+        #endregion
+
+        #region HashSet 测试
+
+        [Test]
+        public void TestSerialize_IntHashSet()
+        {
+            var set = new HashSet<int> { 1, 2, 3 };
+            string json = SimpleJson.SerializeObject(set);
+            Assert.That(json, Does.Contain("1"));
+            Assert.That(json, Does.Contain("2"));
+            Assert.That(json, Does.Contain("3"));
+        }
+
+        #endregion
+
+        #region 嵌套集合测试
+
+        [Test]
+        public void TestSerialize_NestedList()
+        {
+            var nested = new List<List<int>>
+            {
+                new List<int> { 1, 2 },
+                new List<int> { 3, 4 }
+            };
+            string json = SimpleJson.SerializeObject(nested);
+            Assert.That(json, Is.EqualTo("[[1,2],[3,4]]"));
+        }
+
+        [Test]
+        public void TestDeserialize_NestedList()
+        {
+            string json = "[[1,2],[3,4]]";
+            var result = SimpleJson.DeserializeObject<List<List<int>>>(json);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Count, Is.EqualTo(2));
+            Assert.That(result[0][0], Is.EqualTo(1));
+            Assert.That(result[1][1], Is.EqualTo(4));
+        }
+
+        [Test]
+        public void TestSerialize_DictionaryWithListValue()
+        {
+            var dict = new Dictionary<string, List<int>>
+            {
+                { "numbers", new List<int> { 1, 2, 3 } }
+            };
+            string json = SimpleJson.SerializeObject(dict);
+            Assert.That(json, Does.Contain("numbers"));
+            Assert.That(json, Does.Contain("[1,2,3]"));
+        }
+
+        [Test]
+        public void TestDeserialize_DictionaryWithListValue()
+        {
+            string json = @"{""numbers"":[1,2,3]}";
+            var result = SimpleJson.DeserializeObject<Dictionary<string, List<int>>>(json);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result["numbers"], Is.Not.Null);
+            Assert.That(result["numbers"].Count, Is.EqualTo(3));
+        }
+
+        #endregion
+    }
+
+    [TestFixture]
+    [Category("ComplexTypes")]
+    public class SimpleJsonComplexTypeTests
+    {
+        #region 测试模型
+
+        public class SimplePerson
+        {
+            public string? Name { get; set; }
+            public int Age { get; set; }
+        }
+
+        public class Address
+        {
+            public string Street { get; set; } = "";
+            public string City { get; set; } = "";
+            public string ZipCode { get; set; } = "";
+        }
+
+        public class PersonWithAddress
+        {
+            public string Name { get; set; } = "";
+            public Address? Address { get; set; }
+        }
+
+        public class Company
+        {
+            public string Name { get; set; } = "";
+            public List<SimplePerson> Employees { get; set; } = new();
+        }
+
+        public class RecursiveModel
+        {
+            public string Name { get; set; } = "";
+            public RecursiveModel? Child { get; set; }
+        }
+
+        public class ModelWithDefaultValues
+        {
+            public int Number { get; set; } = 100;
+            public string Text { get; set; } = "default";
+            public bool Flag { get; set; } = true;
+        }
+
+        #endregion
+
+        #region 简单对象测试
+
+        [Test]
+        public void TestSerialize_SimpleObject()
+        {
+            var person = new SimplePerson { Name = "John", Age = 30 };
+            string json = SimpleJson.SerializeObject(person);
+            Assert.That(json, Does.Contain("name"));
+            Assert.That(json, Does.Contain("John"));
+            Assert.That(json, Does.Contain("age"));
+            Assert.That(json, Does.Contain("30"));
+        }
+
+        [Test]
+        public void TestDeserialize_SimpleObject()
+        {
+            string json = @"{""Name"":""John"",""Age"":30}";
+            var result = SimpleJson.DeserializeObject<SimplePerson>(json);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Name, Is.EqualTo("John"));
+            Assert.That(result.Age, Is.EqualTo(30));
+        }
+
+        [Test]
+        public void TestSerialize_ObjectWithNullProperty()
+        {
+            var person = new SimplePerson { Name = "", Age = 25 };
+            string json = SimpleJson.SerializeObject(person);
+            Assert.That(json, Does.Contain("age"));
+            Assert.That(json, Does.Contain("25"));
+        }
+
+        #endregion
+
+        #region 嵌套对象测试
+
+        [Test]
+        public void TestSerialize_NestedObject()
+        {
+            var person = new PersonWithAddress
+            {
+                Name = "John",
+                Address = new Address
+                {
+                    Street = "123 Main St",
+                    City = "New York",
+                    ZipCode = "10001"
+                }
+            };
+            string json = SimpleJson.SerializeObject(person);
+            Assert.That(json, Does.Contain("John"));
+            Assert.That(json, Does.Contain("123 Main St"));
+            Assert.That(json, Does.Contain("New York"));
+        }
+
+        [Test]
+        public void TestDeserialize_NestedObject()
+        {
+            string json = @"{""Name"":""John"",""Address"":{""Street"":""123 Main St"",""City"":""New York"",""ZipCode"":""10001""}}";
+            var result = SimpleJson.DeserializeObject<PersonWithAddress>(json);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Name, Is.EqualTo("John"));
+            Assert.That(result.Address, Is.Not.Null);
+            Assert.That(result.Address.Street, Is.EqualTo("123 Main St"));
+            Assert.That(result.Address.City, Is.EqualTo("New York"));
+        }
+
+        [Test]
+        public void TestSerialize_NestedObjectNull()
+        {
+            var person = new PersonWithAddress
+            {
+                Name = "John",
+                Address = new Address { Street = "", City = "", ZipCode = "" }
+            };
+            string json = SimpleJson.SerializeObject(person);
+            Assert.That(json, Does.Contain("John"));
+        }
+
+        #endregion
+
+        #region 对象列表测试
+
+        [Test]
+        public void TestSerialize_ObjectList()
+        {
+            var company = new Company
+            {
+                Name = "Tech Corp",
+                Employees = new List<SimplePerson>
+                {
+                    new SimplePerson { Name = "Alice", Age = 28 },
+                    new SimplePerson { Name = "Bob", Age = 32 }
+                }
+            };
+            string json = SimpleJson.SerializeObject(company);
+            Assert.That(json, Does.Contain("Tech Corp"));
+            Assert.That(json, Does.Contain("Alice"));
+            Assert.That(json, Does.Contain("Bob"));
+        }
+
+        [Test]
+        public void TestDeserialize_ObjectList()
+        {
+            string json = @"{""Name"":""Tech Corp"",""Employees"":[{""Name"":""Alice"",""Age"":28},{""Name"":""Bob"",""Age"":32}]}";
+            var result = SimpleJson.DeserializeObject<Company>(json);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Name, Is.EqualTo("Tech Corp"));
+            Assert.That(result.Employees, Is.Not.Null);
+            Assert.That(result.Employees.Count, Is.EqualTo(2));
+            Assert.That(result.Employees[0].Name, Is.EqualTo("Alice"));
+        }
+
+        #endregion
+
+        #region 递归对象测试
+
+        [Test]
+        public void TestSerialize_RecursiveObject()
+        {
+            var root = new RecursiveModel
+            {
+                Name = "Root",
+                Child = new RecursiveModel
+                {
+                    Name = "Child",
+                    Child = new RecursiveModel { Name = "" }
+                }
+            };
+            string json = SimpleJson.SerializeObject(root);
+            Assert.That(json, Does.Contain("Root"));
+            Assert.That(json, Does.Contain("Child"));
+        }
+
+        [Test]
+        public void TestDeserialize_RecursiveObject()
+        {
+            string json = @"{""Name"":""Root"",""Child"":{""Name"":""Child"",""Child"":null}}";
+            var result = SimpleJson.DeserializeObject<RecursiveModel>(json);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Name, Is.EqualTo("Root"));
+            Assert.That(result.Child, Is.Not.Null);
+            Assert.That(result.Child.Name, Is.EqualTo("Child"));
+            Assert.That(result.Child.Child, Is.Null);
+        }
+
+        #endregion
+
+        #region 默认值测试
+
+        [Test]
+        public void TestSerialize_DefaultValues()
+        {
+            var model = new ModelWithDefaultValues();
+            string json = SimpleJson.SerializeObject(model);
+            Assert.That(json, Does.Contain("100"));
+            Assert.That(json, Does.Contain("default"));
+            Assert.That(json, Does.Contain("true"));
+        }
+
+        [Test]
+        public void TestDeserialize_PartialJson_UsesDefaults()
+        {
+            string json = @"{""Number"":200}";
+            var result = SimpleJson.DeserializeObject<ModelWithDefaultValues>(json);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Number, Is.EqualTo(200));
+        }
+
+        #endregion
+    }
+
+    [TestFixture]
+    [Category("EdgeCases")]
+    public class SimpleJsonEdgeCaseTests
+    {
+        #region 特殊字符测试
+
+        [Test]
+        public void TestSerialize_StringWithQuotes()
+        {
+            string value = @"He said ""Hello""";
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Does.Contain(@"\"""));
+        }
+
+        [Test]
+        public void TestDeserialize_StringWithQuotes()
+        {
+            string json = @"""He said \""Hello\""""";
+            string result = SimpleJson.DeserializeObject<string>(json);
+            Assert.That(result, Is.EqualTo(@"He said ""Hello"""));
+        }
+
+        [Test]
+        public void TestSerialize_StringWithBackslash()
+        {
+            string value = @"C:\Path\To\File";
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Does.Contain(@"\\"));
+        }
+
+        [Test]
+        public void TestDeserialize_StringWithBackslash()
+        {
+            string json = @"""C:\\Path\\To\\File""";
+            string result = SimpleJson.DeserializeObject<string>(json);
+            Assert.That(result, Is.EqualTo(@"C:\Path\To\File"));
+        }
+
+        [Test]
+        public void TestSerialize_StringWithUnicode()
+        {
+            string value = "Hello 世界 🌍";
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Does.Contain("世界"));
+        }
+
+        [Test]
+        public void TestDeserialize_StringWithUnicode()
+        {
+            string json = @"""Hello 世界 🌍""";
+            string result = SimpleJson.DeserializeObject<string>(json);
+            Assert.That(result, Is.EqualTo("Hello 世界 🌍"));
+        }
+
+        [Test]
+        public void TestSerialize_StringWithNewline()
+        {
+            string value = "Line1\nLine2\r\nLine3";
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Does.Contain("\\n"));
+            Assert.That(json, Does.Contain("\\r"));
+        }
+
+        [Test]
+        public void TestSerialize_StringWithTab()
+        {
+            string value = "Col1\tCol2";
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Does.Contain("\\t"));
+        }
+
+        #endregion
+
+        #region 边界值测试
+
+        [Test]
+        public void TestSerialize_MaxInt()
+        {
+            int value = int.MaxValue;
+            string json = SimpleJson.SerializeObject(value);
+            int result = SimpleJson.DeserializeObject<int>(json);
+            Assert.That(result, Is.EqualTo(int.MaxValue));
+        }
+
+        [Test]
+        public void TestSerialize_MinInt()
+        {
+            int value = int.MinValue;
+            string json = SimpleJson.SerializeObject(value);
+            int result = SimpleJson.DeserializeObject<int>(json);
+            Assert.That(result, Is.EqualTo(int.MinValue));
+        }
+
+        [Test]
+        public void TestSerialize_MaxDouble()
+        {
+            double value = double.MaxValue;
+            string json = SimpleJson.SerializeObject(value);
+            double result = SimpleJson.DeserializeObject<double>(json);
+            Assert.That(result, Is.EqualTo(double.MaxValue));
+        }
+
+        [Test]
+        public void TestSerialize_DoubleInfinity()
+        {
+            double value = double.PositiveInfinity;
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Does.Contain("Infinity"));
+        }
+
+        [Test]
+        public void TestSerialize_DoubleNaN()
+        {
+            double value = double.NaN;
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Does.Contain("NaN"));
+        }
+
+        [Test]
+        public void TestSerialize_EmptyString()
+        {
+            string value = "";
+            string json = SimpleJson.SerializeObject(value);
+            Assert.That(json, Is.EqualTo(@""""""));
+        }
+
+        [Test]
+        public void TestDeserialize_EmptyString()
+        {
+            string json = @"""""";
+            string result = SimpleJson.DeserializeObject<string>(json);
+            Assert.That(result, Is.EqualTo(""));
+        }
+
+        #endregion
+
+        #region 空白和格式测试
+
+        [Test]
+        public void TestDeserialize_JsonWithWhitespace()
+        {
+            string json = "{ \"Name\" : \"John\" , \"Age\" : 30 }";
+            var result = SimpleJson.DeserializeObject<SimpleJsonComplexTypeTests.SimplePerson>(json);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Name, Is.EqualTo("John"));
+            Assert.That(result.Age, Is.EqualTo(30));
+        }
+
+        [Test]
+        public void TestDeserialize_JsonWithNewlines()
+        {
+            string json = @"{
+                ""Name"": ""John"",
+                ""Age"": 30
+            }";
+            var result = SimpleJson.DeserializeObject<SimpleJsonComplexTypeTests.SimplePerson>(json);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Name, Is.EqualTo("John"));
+        }
+
+        #endregion
+
+        #region 错误处理测试
+
+        [Test]
+        public void TestDeserialize_InvalidJson_Throws()
+        {
+            string json = "not valid json";
+            Assert.Throws<SerializationException>(() => SimpleJson.DeserializeObject<object>(json));
+        }
+
+        [Test]
+        public void TestDeserialize_TruncatedJson_Throws()
+        {
+            string json = @"{""Name"": ""John";
+            Assert.Throws<SerializationException>(() => SimpleJson.DeserializeObject<SimpleJsonComplexTypeTests.SimplePerson>(json));
+        }
+
+        [Test]
+        public void TestDeserialize_TypeMismatch()
+        {
+            string json = @"""not a number""";
+            Assert.Throws<FormatException>(() => SimpleJson.DeserializeObject<int>(json));
+        }
+
+        #endregion
+
+        #region 扩展方法测试
+
+        [Test]
+        public void TestToJson_ExtensionMethod()
+        {
+            var person = new SimpleJsonComplexTypeTests.SimplePerson { Name = "Test", Age = 25 };
+            string json = person.ToJson();
+            Assert.That(json, Does.Contain("Test"));
+            Assert.That(json, Does.Contain("25"));
+        }
+
+        [Test]
+        public void TestFromJson_ExtensionMethod()
+        {
+            string json = @"{""Name"":""Test"",""Age"":25}";
+            var result = json.FromJson<SimpleJsonComplexTypeTests.SimplePerson>();
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Name, Is.EqualTo("Test"));
+            Assert.That(result.Age, Is.EqualTo(25));
+        }
+
+        [Test]
+        public void TestToJson_WithLowerCase()
+        {
+            var person = new SimpleJsonComplexTypeTests.SimplePerson { Name = "Test", Age = 25 };
+            string json = person.ToJson(lowerCase: true);
+            Assert.That(json, Does.Contain("name"));
+            Assert.That(json, Does.Contain("age"));
+        }
+
+        [Test]
+        public void TestFromJson_WithLowerCase()
+        {
+            string json = @"{""name"":""Test"",""age"":25}";
+            var result = json.FromJson<SimpleJsonComplexTypeTests.SimplePerson>(lowerCase: true);
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Name, Is.EqualTo("Test"));
+            Assert.That(result.Age, Is.EqualTo(25));
+        }
+
+        #endregion
+    }
+
+    [TestFixture]
+    [Category("Performance")]
+    public class SimpleJsonPerformanceTests
+    {
+        [Test]
+        public void TestPerformance_SerializeManyObjects()
+        {
+            var persons = new List<SimpleJsonComplexTypeTests.SimplePerson>();
+            for (int i = 0; i < 1000; i++)
+            {
+                persons.Add(new SimpleJsonComplexTypeTests.SimplePerson
+                {
+                    Name = $"Person_{i}",
+                    Age = i % 100
+                });
+            }
+
+            var sw = Stopwatch.StartNew();
+            string json = SimpleJson.SerializeObject(persons);
+            sw.Stop();
+
+            Assert.That(json, Is.Not.Null);
+            Assert.That(json.Length, Is.GreaterThan(0));
+            Console.WriteLine($"Serialize 1000 objects: {sw.ElapsedMilliseconds}ms");
+        }
+
+        [Test]
+        public void TestPerformance_DeserializeManyObjects()
+        {
+            var persons = new List<SimpleJsonComplexTypeTests.SimplePerson>();
+            for (int i = 0; i < 1000; i++)
+            {
+                persons.Add(new SimpleJsonComplexTypeTests.SimplePerson
+                {
+                    Name = $"Person_{i}",
+                    Age = i % 100
+                });
+            }
+            string json = SimpleJson.SerializeObject(persons);
+
+            var sw = Stopwatch.StartNew();
+            var result = SimpleJson.DeserializeObject<List<SimpleJsonComplexTypeTests.SimplePerson>>(json);
+            sw.Stop();
+
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result.Count, Is.EqualTo(1000));
+            Console.WriteLine($"Deserialize 1000 objects: {sw.ElapsedMilliseconds}ms");
+        }
+
+        [Test]
+        public void TestPerformance_DeepNestedObject()
+        {
+            var root = new SimpleJsonComplexTypeTests.RecursiveModel { Name = "Root" };
+            var current = root;
+            for (int i = 0; i < 100; i++)
+            {
+                var child = new SimpleJsonComplexTypeTests.RecursiveModel { Name = $"Level_{i}", Child = new SimpleJsonComplexTypeTests.RecursiveModel { Name = "" } };
+                current.Child = child;
+                current = child;
+            }
+
+            var sw = Stopwatch.StartNew();
+            string json = SimpleJson.SerializeObject(root);
+            sw.Stop();
+
+            Assert.That(json, Is.Not.Null);
+            Console.WriteLine($"Serialize 100-level nested object: {sw.ElapsedMilliseconds}ms");
+        }
     }
 
 }
