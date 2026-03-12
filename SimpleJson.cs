@@ -122,6 +122,7 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
         public static readonly string[] Iso8601Formats = {
             Iso8601Format,
             Iso8601FormatZ,
+            @"yyyy-MM-dd\THH\:mm\:ss",
             @"yyyy-MM-dd\THH\:mm\:ss.fffffffzzz",
             @"yyyy-MM-dd\THH\:mm\:ss.ffffffzzz",
             @"yyyy-MM-dd\THH\:mm\:ss.fffffzzz",
@@ -1754,9 +1755,35 @@ namespace RS.SimpleJsonAOT//GitHub.Unity.Json
                     //if (type == typeof(NPath) || (ReflectionUtils.IsNullableType(type) && Nullable.GetUnderlyingType(type) == typeof(NPath)))
                     //    return new NPath(str);
                     if (type == typeof(DateTime) || (ReflectionUtils.IsNullableType(type) && Nullable.GetUnderlyingType(type) == typeof(DateTime)))
-                        return DateTime.ParseExact(str,Iso8601Format,CultureInfo.InvariantCulture,DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+                    {
+                        foreach (var format in Iso8601Format)
+                        {
+                            try
+                            {
+                                return DateTime.ParseExact(str, format, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+                            }
+                            catch (FormatException)
+                            {
+                                continue;
+                            }
+                        }
+                        throw new FormatException($"DateTime string '{str}' was not recognized as a valid DateTime.");
+                    }
                     if (type == typeof(DateTimeOffset) || (ReflectionUtils.IsNullableType(type) && Nullable.GetUnderlyingType(type) == typeof(DateTimeOffset)))
-                        return DateTimeOffset.ParseExact(str,Iso8601Format,CultureInfo.InvariantCulture,DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+                    {
+                        foreach (var format in Iso8601Format)
+                        {
+                            try
+                            {
+                                return DateTimeOffset.ParseExact(str, format, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+                            }
+                            catch (FormatException)
+                            {
+                                continue;
+                            }
+                        }
+                        throw new FormatException($"DateTimeOffset string '{str}' was not recognized as a valid DateTimeOffset.");
+                    }
                     // ✅ 修复：添加 TimeSpan 反序列化支持
                     if (type == typeof(TimeSpan) || (ReflectionUtils.IsNullableType(type) && Nullable.GetUnderlyingType(type) == typeof(TimeSpan)))
                     {
