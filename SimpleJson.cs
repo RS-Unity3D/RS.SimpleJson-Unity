@@ -13,9 +13,11 @@
 ////    See the License for the specific language governing permissions and
 ////    limitations under the License.
 //// </copyright>
-//// <author>Nathan Totten (ntotten.com), Jim Zimmerman (jimzimmerman.com) and Prabir Shrestha (prabir.me)</author>
+//// <author>andyhebear, </author>
 //// <website>https://github.com/facebook-csharp-sdk/simple-json</website>
 ////-----------------------------------------------------------------------
+////sgd:2026.4.2 be compatible with simplejson v2.0.0 as much as possible
+////sgd:2026.3.20 refactoring
 ////sgd:2026.2.20 support aot compiler
 ////sgd: 2025.12.15 support unity 3d
 ////sgd: 2025.11.10 support property To lower case
@@ -28,8 +30,6 @@
 //// NOTE: uncomment the following line to make JsonArray and JsonObject class internal.
 //#define SIMPLE_JSON_OBJARRAYINTERNAL
 
-//// NOTE: uncomment the following line to enable dynamic support.
-////#define SIMPLE_JSON_DYNAMIC
 
 //// NOTE: uncomment the following line to enable DataContract support.
 ////#define SIMPLE_JSON_DATACONTRACT
@@ -37,34 +37,31 @@
 //// NOTE: uncomment the following line to enable IReadOnlyCollection<T> and IReadOnlyList<T> support.
 //#define SIMPLE_JSON_READONLY_COLLECTIONS
 
-//// NOTE: uncomment the following line to disable linq expressions/compiled lambda (better performance) instead of method.invoke().
-//// define if you are using .net framework <= 3.0 or < WP7.5
-//#define SIMPLE_JSON_NO_LINQ_EXPRESSION
+
 
 //// NOTE: uncomment the following line if you are compiling under Window Metro style application/library.
 //// usually already defined in properties
 ////#define NETFX_CORE;
 
-////NOTE: support AOT compiler, but will disable dynamic and DataContract support, and use method.invoke() instead of compiled lambda, which is slower.
-//#define AOT
+
 
 ////NOTE:If you are targetting WinStore, WP8 and NET4.5+ PCL make sure to #define SIMPLE_JSON_TYPEINFO;
 ////#define SIMPLE_JSON_TYPEINFO;
 //// original json parsing code from http://techblog.procurios.nl/k/618/news/view/14605/14863/How-do-I-write-my-own-parser-for-JSON.html
 
-////add
-////NOTE:Ignore the case of attributes/fields
-//#define SIMPLE_JSON_PropertyToLowerCase
+//NOTE:SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
+//#define SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
 
-////NOTE:Private fields marked with JsonInclude are serialized when onlyPublic=false
-////Private properties marked with JsonInclude are serialized when onlyPublic=false
-////By default (onlyPublic=true), private members are not included
-////#define SIMPLE_JSON_OnlyPublicProperty
+//NOTE:Ignore the case of attributes/fields
+// SIMPLE_JSON_PropertyIgnoreLowerCase
+//     Define to make the default serialization strategy use
+//     lowercase JSON keys by default. Equivalent to setting
+//     DefaultJsonSerializationStrategy.toLowerCase = true.
+//
+//#define SIMPLE_JSON_PropertyIgnoreLowerCase
 
-////NOTE:Single-threaded mode, such as WebGL, does not consider multi-threading.
-////#define SINGLE_THREADED
 
-//#if NET35 || NET40
+//#if NET35 || NET20
 //#undef SIMPLE_JSON_READONLY_COLLECTIONS
 //#endif
 
@@ -72,73 +69,18 @@
 //#define SIMPLE_JSON_TYPEINFO
 //#endif
 
-////NOTE:Unity support
-//#if UNITY_4 || UNITY_5 || UNITY_5_3_OR_NEWER || UNITY_2017_1_OR_NEWER
-//#define SIMPLE_JSON_UNITY
-////unity webgl does not support multi-threading
-//#if UNITY_WEBGL
-//#define SINGLE_THREADED
-//#endif
-////unity aot compiler
-//#if ENABLE_IL2CPP
-//#define AOT
-//#endif
-//#endif
+//NOTE:Unity support
 //#if SIMPLE_JSON_UNITY
 //using UnityEngine;
 //#endif
 
 
-
-//using System;
-//using System.CodeDom.Compiler;
-//using System.Collections;
-//using System.Collections.Generic;
-////#if !SIMPLE_JSON_NO_LINQ_EXPRESSION
-////using System.Linq.Expressions;
-////#endif
-//using System.ComponentModel;
-//using System.Diagnostics.CodeAnalysis;
-////#if SIMPLE_JSON_DYNAMIC
-////using System.Dynamic;
-////#endif
-//using System.Globalization;
-//using System.Reflection;
-//using System.Runtime.Serialization;
-//using System.Text;
-//using System.Runtime.CompilerServices;
-//using System.Runtime.Serialization.Formatters;
-////
-
-//// ReSharper disable LoopCanBeConvertedToQuery
-//// ReSharper disable RedundantExplicitArrayCreation
-//// ReSharper disable SuggestUseVarKeywordEvident
-//namespace RS.SimpleJsonAOT//GitHub.Unity.Json
-
-// SimpleJson.cs — RS.SimpleJson-Unity (patched)
-// All bugs fixed. See compilation symbols below for configuration.
-//
-// ============================================================
-// Compilation Symbols Reference
-// ============================================================
-// SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
-//     Define in AOT-strict environments where Enum.Parse is
-//     unavailable. Enum deserialization only supports numeric
-//     string keys (e.g. "0", "1").
-//
 // NET20
 //     Automatically defined by .NET 2.0 target framework.
 //     Disables ReaderWriterLockSlim (unavailable in .NET 2.0).
 //
-// UNITY_5_3_OR_NEWER
-//     Automatically defined by Unity. Disables ReaderWriterLockSlim
-//     due to known il2cpp stability issues. Uses lock instead.
-//
-// SIMPLE_JSON_PropertyToLowerCase
-//     Define to make the default serialization strategy use
-//     lowercase JSON keys by default. Equivalent to setting
-//     DefaultJsonSerializationStrategy.toLowerCase = true.
-//
+
+
 // UNITY_EDITOR, DEVELOPMENT_BUILD, DEBUG
 //     Enable Guard.LogWarning / Guard.LogError output and
 //     additional runtime validation. All diagnostic calls and
@@ -155,7 +97,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Text;
 
-#if UNITY_5_3_OR_NEWER
+#if SIMPLE_JSON_UNITY
 using UnityEngine;
 #endif
 
@@ -264,7 +206,7 @@ namespace RS.SimpleJsonUnity
     // TypeCacheKey  （setter 缓存复合 key，区分 toLowerCase 状态）
     // ──────────────────────────────────────────────────────────────
 
-    internal struct TypeCacheKey : IEquatable<TypeCacheKey>
+    public struct TypeCacheKey : IEquatable<TypeCacheKey>
     {
         public readonly Type Type;
         public readonly bool ToLowerCase;
@@ -299,13 +241,13 @@ namespace RS.SimpleJsonUnity
     // ThreadSafeDictionary
     // ──────────────────────────────────────────────────────────────
 
-    internal class ThreadSafeDictionary<TKey, TValue>
+    public class ThreadSafeDictionary<TKey, TValue>
         : IDictionary<TKey,TValue>
     {
         private readonly Dictionary<TKey,TValue> _dict =
             new Dictionary<TKey,TValue>();
 
-#if NET20 || UNITY_5_3_OR_NEWER
+#if NET20 || SIMPLE_JSON_UNITY
     private readonly object _lock = new object();
 
     public TValue this[TKey key]
@@ -484,15 +426,15 @@ namespace RS.SimpleJsonUnity
         }
     }
     [GeneratedCode("simple-json","1.0.0")]
+    /// <summary>
+    /// 序列化/反序列化策略接口。
+    /// 实现此接口可完全自定义 SimpleJson 的序列化行为。
+    /// </summary>
 #if SIMPLE_JSON_INTERNAL
     internal
 #else
     public
 #endif
-    /// <summary>
-    /// 序列化/反序列化策略接口。
-    /// 实现此接口可完全自定义 SimpleJson 的序列化行为。
-    /// </summary>
     interface IJsonSerializerStrategy
     {
         /// <summary>
@@ -517,43 +459,49 @@ namespace RS.SimpleJsonUnity
         /// <returns>成功返回 true；失败返回 false。</returns>
         bool TryDeserializeObject(object value,Type type,out object output);
     }
-    public class DefaultJsonSerializationStrategy : IJsonSerializerStrategy
+
+#if SIMPLE_JSON_INTERNAL
+    internal
+#else
+    public
+#endif
+    class DefaultJsonSerializationStrategy : IJsonSerializerStrategy
     {
         // volatile 保证多线程可见性
         // 注：在多线程中动态切换 toLowerCase 不是线程安全的。
         // 建议在初始化阶段一次性设定，之后不再修改。
         public volatile bool toLowerCase;
 
-        private const BindingFlags PUBLIC_INSTANCE =
+        protected const BindingFlags PUBLIC_INSTANCE =
             BindingFlags.Public | BindingFlags.Instance;
-        private const BindingFlags NONPUBLIC_INSTANCE =
+        protected const BindingFlags NONPUBLIC_INSTANCE =
             BindingFlags.NonPublic | BindingFlags.Instance;
 
         // getter 缓存：序列化始终用原始 CLR 名，与 toLowerCase 无关
-        private static readonly ThreadSafeDictionary<Type,
+        protected static readonly ThreadSafeDictionary<Type,
             IDictionary<string,Func<object,object>>> _getterCache
             = new ThreadSafeDictionary<Type,
                 IDictionary<string,Func<object,object>>>();
 
         // setter 缓存：反序列化 key 受 toLowerCase 影响，需要复合 key
-        private static readonly ThreadSafeDictionary<TypeCacheKey,
+        protected static readonly ThreadSafeDictionary<TypeCacheKey,
             IDictionary<string,Action<object,object>>> _setterCache
             = new ThreadSafeDictionary<TypeCacheKey,
                 IDictionary<string,Action<object,object>>>();
 
-#if NET20 || UNITY_5_3_OR_NEWER
-    private static readonly object _getterBuildLock = new object();
-    private static readonly object _setterBuildLock = new object();
+#if NET20 || SIMPLE_JSON_UNITY
+    protected static readonly object _getterBuildLock = new object();
+    protected static readonly object _setterBuildLock = new object();
 #else
-        private static readonly System.Threading.ReaderWriterLockSlim
+        protected static readonly System.Threading.ReaderWriterLockSlim
             _getterBuildLock = new System.Threading.ReaderWriterLockSlim();
-        private static readonly System.Threading.ReaderWriterLockSlim
+        protected static readonly System.Threading.ReaderWriterLockSlim
             _setterBuildLock = new System.Threading.ReaderWriterLockSlim();
 #endif
 
         public DefaultJsonSerializationStrategy()
         {
-#if SIMPLE_JSON_PropertyToLowerCase
+#if SIMPLE_JSON_PropertyIgnoreLowerCase
         toLowerCase = true;
 #else
             toLowerCase = false;
@@ -958,9 +906,9 @@ namespace RS.SimpleJsonUnity
 
         // ── GetOrBuild 缓存访问 ─────────────────────────────────────
 
-#if NET20 || UNITY_5_3_OR_NEWER
+#if NET20 || SIMPLE_JSON_UNITY
 
-    protected IDictionary<string, Func<object, object>>
+    protected virtual IDictionary<string, Func<object, object>>
         GetOrBuildGetters(Type type)
     {
         IDictionary<string, Func<object, object>> cached;
@@ -984,7 +932,7 @@ namespace RS.SimpleJsonUnity
         }
     }
 
-    protected IDictionary<string, Action<object, object>>
+    protected virtual IDictionary<string, Action<object, object>>
         GetOrBuildSetters(Type type)
     {
         var cacheKey = new TypeCacheKey(type, toLowerCase);
@@ -1010,7 +958,7 @@ namespace RS.SimpleJsonUnity
 
 #else
 
-        protected IDictionary<string,Func<object,object>>
+        protected virtual IDictionary<string,Func<object,object>>
             GetOrBuildGetters(Type type)
         {
             _getterBuildLock.EnterReadLock();
@@ -1042,7 +990,7 @@ namespace RS.SimpleJsonUnity
             finally { _getterBuildLock.ExitWriteLock(); }
         }
 
-        protected IDictionary<string,Action<object,object>>
+        protected virtual IDictionary<string,Action<object,object>>
             GetOrBuildSetters(Type type)
         {
             var cacheKey = new TypeCacheKey(type,toLowerCase);
@@ -1076,7 +1024,7 @@ namespace RS.SimpleJsonUnity
             finally { _setterBuildLock.ExitWriteLock(); }
         }
 
-#endif  // NET20 || UNITY_5_3_OR_NEWER
+#endif  // NET20 || SIMPLE_JSON_UNITY
 
         // ── TrySerializeNonPrimitiveObject ──────────────────────────
 
@@ -1299,7 +1247,7 @@ namespace RS.SimpleJsonUnity
         }
         internal static void ClearCache()
         {
-#if NET20 || UNITY_5_3_OR_NEWER
+#if NET20 || SIMPLE_JSON_UNITY
     lock (_getterBuildLock)
     {
         _getterCache.Clear();
@@ -1326,6 +1274,93 @@ namespace RS.SimpleJsonUnity
 
     internal static class ReflectionUtils
     {
+        // ── SIMPLE_JSON_TYPEINFO 支持 ─────────────────────────────
+
+#if SIMPLE_JSON_TYPEINFO
+        public static System.Reflection.TypeInfo GetTypeInfo(Type type)
+        {
+            return type.GetTypeInfo();
+        }
+#else
+        public static Type GetTypeInfo(Type type)
+        {
+            return type;
+        }
+#endif
+
+        public static bool IsTypeGeneric(Type type)
+        {
+            return GetTypeInfo(type).IsGenericType;
+        }
+
+        public static bool IsAssignableFrom(Type type1, Type type2)
+        {
+            return GetTypeInfo(type1).IsAssignableFrom(GetTypeInfo(type2));
+        }
+
+        public static Type[] GetGenericTypeArguments(Type type)
+        {
+#if SIMPLE_JSON_TYPEINFO
+            return type.GetTypeInfo().GenericTypeArguments;
+#else
+            return type.GetGenericArguments();
+#endif
+        }
+
+        public static IEnumerable<Type> GetImplementedInterfaces(Type type)
+        {
+#if SIMPLE_JSON_TYPEINFO
+            return type.GetTypeInfo().ImplementedInterfaces;
+#else
+            return type.GetInterfaces();
+#endif
+        }
+
+        public static Attribute GetAttribute(MemberInfo info, Type type)
+        {
+#if SIMPLE_JSON_TYPEINFO
+            if (info == null || type == null || !info.IsDefined(type))
+                return null;
+            return info.GetCustomAttribute(type);
+#else
+            if (info == null || type == null || !Attribute.IsDefined(info, type))
+                return null;
+            return Attribute.GetCustomAttribute(info, type);
+#endif
+        }
+
+        public static Attribute GetAttribute(Type objectType, Type attributeType)
+        {
+#if SIMPLE_JSON_TYPEINFO
+            if (objectType == null || attributeType == null || !objectType.GetTypeInfo().IsDefined(attributeType))
+                return null;
+            return objectType.GetTypeInfo().GetCustomAttribute(attributeType);
+#else
+            if (objectType == null || attributeType == null || !Attribute.IsDefined(objectType, attributeType))
+                return null;
+            return Attribute.GetCustomAttribute(objectType, attributeType);
+#endif
+        }
+
+        // ── 类型判断 ─────────────────────────────────────────────
+
+        public static bool IsTypeGenericeCollectionInterface(Type type)
+        {
+            if (!IsTypeGeneric(type))
+                return false;
+
+            Type genericDefinition = type.GetGenericTypeDefinition();
+
+            return (genericDefinition == typeof(IList<>)
+                || genericDefinition == typeof(ICollection<>)
+                || genericDefinition == typeof(IEnumerable<>)
+#if SIMPLE_JSON_READONLY_COLLECTIONS
+                || genericDefinition == typeof(IReadOnlyCollection<>)
+                || genericDefinition == typeof(IReadOnlyList<>)
+#endif
+                );
+        }
+
         public static bool IsTypeDictionary(Type type)
         {
             // 非泛型 IDictionary（Hashtable、SortedList 等）
@@ -1333,11 +1368,18 @@ namespace RS.SimpleJsonUnity
                 return true;
 
             // 泛型 IDictionary<,>（Dictionary<K,V>、SortedDictionary<K,V> 等）
-            foreach (Type iface in type.GetInterfaces())
+            foreach (Type iface in GetImplementedInterfaces(type))
             {
-                if (iface.IsGenericType &&
-                    iface.GetGenericTypeDefinition() == typeof(IDictionary<,>))
-                    return true;
+                if (iface.IsGenericType)
+                {
+                    Type genericDef = iface.GetGenericTypeDefinition();
+                    if (genericDef == typeof(IDictionary<,>)
+#if SIMPLE_JSON_READONLY_COLLECTIONS
+                        || genericDef == typeof(IReadOnlyDictionary<,>)
+#endif
+                    )
+                        return true;
+                }
             }
             return false;
         }
@@ -1346,13 +1388,43 @@ namespace RS.SimpleJsonUnity
         {
             return Nullable.GetUnderlyingType(type) != null;
         }
+
+        public static Type GetGenericListElementType(Type type)
+        {
+            foreach (Type implementedInterface in GetImplementedInterfaces(type))
+            {
+                if (IsTypeGeneric(implementedInterface) &&
+                    implementedInterface.GetGenericTypeDefinition() == typeof(IList<>))
+                {
+                    return GetGenericTypeArguments(implementedInterface)[0];
+                }
+            }
+            return GetGenericTypeArguments(type)[0];
+        }
     }
 
     // ──────────────────────────────────────────────────────────────
     // JsonObject  (IDictionary<string,object> 别名，保持原库接口)
     // ──────────────────────────────────────────────────────────────
 
-    public class JsonObject : Dictionary<string,object> { }
+#if SIMPLE_JSON_OBJARRAYINTERNAL
+    internal
+#else
+    public
+#endif
+    class JsonObject : Dictionary<string,object> { }
+
+    // ──────────────────────────────────────────────────────────────
+    // JsonArray  (IList<object> 别名，保持原库接口)
+    // ──────────────────────────────────────────────────────────────
+
+#if SIMPLE_JSON_OBJARRAYINTERNAL
+    internal
+#else
+    public
+#endif
+    class JsonArray : List<object> { }
+
     /// <summary>
     /// 轻量 JSON 解析器。将 JSON 字符串解析为 .NET 对象树：
     ///   JSON object  → IDictionary&lt;string, object&gt;
@@ -1709,12 +1781,81 @@ namespace RS.SimpleJsonUnity
     // SimpleJson 主类
     // ──────────────────────────────────────────────────────────────
 
-    public static class SimpleJson
+#if SIMPLE_JSON_INTERNAL
+    internal
+#else
+    public
+#endif
+    static class SimpleJson
     {
         private static volatile IJsonSerializerStrategy
             _currentJsonSerializerStrategy;
 
         private static readonly object _strategyLock = new object();
+
+        // ── AOT 类型注册 ─────────────────────────────────────────────
+
+        private static readonly Dictionary<string,Type> _aotTypeRegistry =
+            new Dictionary<string,Type>();
+        private static readonly object _registryLock = new object();
+
+        /// <summary>
+        /// 注册AOT类型，用于在AOT环境中创建泛型集合实例。
+        /// </summary>
+        /// <param name="typeName">类型名称，如 "Dictionary&lt;String,Int32&gt;"</param>
+        /// <param name="type">对应的Type</param>
+        public static void RegisterAotType(string typeName,Type type)
+        {
+            if (type == null)
+                throw new ArgumentNullException("type");
+
+            lock (_registryLock)
+            {
+                _aotTypeRegistry[typeName] = type;
+            }
+        }
+
+        /// <summary>
+        /// 获取已注册的AOT类型。
+        /// </summary>
+        /// <param name="typeName">类型名称</param>
+        /// <returns>已注册的类型，未找到返回null</returns>
+        public static Type GetRegisteredAotType(string typeName)
+        {
+            lock (_registryLock)
+            {
+                Type type;
+                return _aotTypeRegistry.TryGetValue(typeName,out type) ? type : null;
+            }
+        }
+
+        /// <summary>
+        /// 初始化常用的AOT类型注册。
+        /// </summary>
+        public static void InitializeCommonAotTypes()
+        {
+            RegisterAotType("Dictionary<String,Object>",typeof(Dictionary<string,object>));
+            RegisterAotType("Dictionary<String,String>",typeof(Dictionary<string,string>));
+            RegisterAotType("Dictionary<String,Int32>",typeof(Dictionary<string,int>));
+            RegisterAotType("Dictionary<String,Int64>",typeof(Dictionary<string,long>));
+            RegisterAotType("Dictionary<String,Boolean>",typeof(Dictionary<string,bool>));
+            RegisterAotType("Dictionary<String,Double>",typeof(Dictionary<string,double>));
+            RegisterAotType("Dictionary<String,Single>",typeof(Dictionary<string,float>));
+            RegisterAotType("Dictionary<String,Decimal>",typeof(Dictionary<string,decimal>));
+            RegisterAotType("Dictionary<String,DateTime>",typeof(Dictionary<string,DateTime>));
+            RegisterAotType("Dictionary<String,Guid>",typeof(Dictionary<string,Guid>));
+
+            RegisterAotType("List<Object>",typeof(List<object>));
+            RegisterAotType("List<String>",typeof(List<string>));
+            RegisterAotType("List<Int32>",typeof(List<int>));
+            RegisterAotType("List<Int64>",typeof(List<long>));
+            RegisterAotType("List<Boolean>",typeof(List<bool>));
+            RegisterAotType("List<Double>",typeof(List<double>));
+            RegisterAotType("List<Single>",typeof(List<float>));
+            RegisterAotType("List<Decimal>",typeof(List<decimal>));
+            RegisterAotType("List<DateTime>",typeof(List<DateTime>));
+            RegisterAotType("List<Guid>",typeof(List<Guid>));
+        }
 
         /// <summary>
         /// 全局默认序列化策略。
@@ -2281,7 +2422,7 @@ namespace RS.SimpleJsonUnity
     }
 
 } // namespace SimpleJson
-#if UNITY_5_3_OR_NEWER
+#if SIMPLE_JSON_UNITY
 
 namespace RS.SimpleJsonUnity
 {
@@ -2293,7 +2434,12 @@ namespace RS.SimpleJsonUnity
     /// 不受 SimpleJson G9/G17 精度修复影响。如需更高精度，
     /// 建议避免直接序列化 UnityEngine 类型，改用自定义 POCO。
     /// </remarks>
-    public class UnitySerializationStrategy : DefaultJsonSerializationStrategy
+#if SIMPLE_JSON_INTERNAL
+    internal
+#else
+    public
+#endif
+    class UnitySerializationStrategy : DefaultJsonSerializationStrategy
     {
         private static bool IsUnityType(Type type)
         {
@@ -2344,7 +2490,419 @@ namespace RS.SimpleJsonUnity
     }
 }
 
-#endif // UNITY_5_3_OR_NEWER
+#endif // SIMPLE_JSON_UNITY
+
+#if SIMPLE_JSON_DATACONTRACT
+
+namespace RS.SimpleJsonUnity
+{
+    using System.Runtime.Serialization;
+
+    /// <summary>
+    /// 支持 DataContract/DataMember/IgnoreDataMember 特性的序列化策略。
+    /// </summary>
+    /// <remarks>
+    /// 启用条件：在编译时定义 SIMPLE_JSON_DATACONTRACT 宏。
+    /// 当类型标记了 [DataContract] 特性时，只有标记了 [DataMember] 的成员会被序列化。
+    /// 未标记 [DataContract] 的类型将使用默认的 POCO 序列化行为。
+    /// </remarks>
+#if SIMPLE_JSON_INTERNAL
+    internal
+#else
+    public
+#endif
+    class DataContractSerializationStrategy : DefaultJsonSerializationStrategy
+    {
+        public DataContractSerializationStrategy() : base() { }
+
+        public DataContractSerializationStrategy(bool toLowerCase, bool onlyPublic)
+            : base(toLowerCase, onlyPublic) { }
+
+        /// <summary>
+        /// 检查类型是否标记了 DataContract 特性
+        /// </summary>
+        private static bool HasDataContract(Type type)
+        {
+            return type != null && type.IsDefined(typeof(DataContractAttribute), true);
+        }
+
+        /// <summary>
+        /// 获取成员的 JSON 键名（考虑 DataMember.Name）
+        /// </summary>
+        private string GetJsonKey(MemberInfo member, bool hasDataContract)
+        {
+            string jsonKey = member.Name;
+
+            if (hasDataContract)
+            {
+                DataMemberAttribute dataMember = (DataMemberAttribute)
+                    member.GetCustomAttributes(typeof(DataMemberAttribute), true)
+                    .FirstOrDefault();
+
+                if (dataMember != null && !string.IsNullOrEmpty(dataMember.Name))
+                    jsonKey = dataMember.Name;
+            }
+
+            if (toLowerCase)
+                jsonKey = ToCamelCase(jsonKey);
+
+            return jsonKey;
+        }
+
+        /// <summary>
+        /// 检查成员是否应该被序列化
+        /// </summary>
+        private bool ShouldSerialize(MemberInfo member, bool hasDataContract)
+        {
+            // IgnoreDataMember 优先级最高
+            if (member.IsDefined(typeof(IgnoreDataMemberAttribute), true))
+                return false;
+
+            // JsonIgnore 也要尊重
+            if (member.IsDefined(typeof(JsonIgnoreAttribute), true))
+                return false;
+
+            if (hasDataContract)
+            {
+                // 有 DataContract 时，必须有 DataMember 才能序列化
+                return member.IsDefined(typeof(DataMemberAttribute), true);
+            }
+
+            // 没有 DataContract，使用默认行为（public 或 JsonInclude）
+            return true;
+        }
+
+        /// <summary>
+        /// 检查成员是否应该被反序列化
+        /// </summary>
+        private bool ShouldDeserialize(MemberInfo member, bool hasDataContract)
+        {
+            return ShouldSerialize(member, hasDataContract);
+        }
+
+        private string ToCamelCase(string propertyName)
+        {
+            if (string.IsNullOrEmpty(propertyName))
+                return propertyName;
+
+            int i = 0;
+            while (i < propertyName.Length && char.IsUpper(propertyName[i]))
+                i++;
+
+            if (i == 0)
+                return propertyName;
+
+            if (i == 1)
+                return char.ToLowerInvariant(propertyName[0]) + propertyName.Substring(1);
+
+            return propertyName.Substring(0, i - 1).ToLowerInvariant() +
+                   propertyName.Substring(i - 1);
+        }
+
+        // ── 重写 BuildGetters 以支持 DataContract ───────────────────
+
+        private static IDictionary<string, Func<object, object>>
+            BuildGettersWithDataContract(Type type, bool toLowerCase)
+        {
+            var getters = new Dictionary<string, Func<object, object>>();
+            var seen = new HashSet<string>();
+            bool hasDataContract = HasDataContract(type);
+
+            // public 属性
+            foreach (PropertyInfo p in type.GetProperties(PUBLIC_INSTANCE))
+            {
+                if (p.GetIndexParameters().Length > 0) continue;
+                if (!p.CanRead) continue;
+                if (seen.Contains(p.Name)) continue;
+
+                if (!ShouldSerializeMember(p, hasDataContract)) continue;
+
+                seen.Add(p.Name);
+                string jsonKey = GetJsonKeyName(p, hasDataContract, toLowerCase);
+                PropertyInfo captured = p;
+                getters[jsonKey] = obj => captured.GetValue(obj, null);
+            }
+
+            // public 字段
+            foreach (FieldInfo f in type.GetFields(PUBLIC_INSTANCE))
+            {
+                if (seen.Contains(f.Name)) continue;
+
+                if (!ShouldSerializeMember(f, hasDataContract)) continue;
+
+                seen.Add(f.Name);
+                string jsonKey = GetJsonKeyName(f, hasDataContract, toLowerCase);
+                FieldInfo captured = f;
+                getters[jsonKey] = obj => captured.GetValue(obj);
+            }
+
+            // non-public：仅 JsonInclude 或 DataMember
+            foreach (PropertyInfo p in type.GetProperties(NONPUBLIC_INSTANCE))
+            {
+                if (p.GetIndexParameters().Length > 0) continue;
+                if (!p.CanRead) continue;
+                if (seen.Contains(p.Name)) continue;
+
+                // DataContract 模式下，DataMember 优先
+                bool hasDataMember = p.IsDefined(typeof(DataMemberAttribute), true);
+                bool hasJsonInclude = p.IsDefined(typeof(JsonIncludeAttribute), true);
+                if (!hasDataMember && !hasJsonInclude) continue;
+                if (p.IsDefined(typeof(IgnoreDataMemberAttribute), true)) continue;
+                if (p.IsDefined(typeof(JsonIgnoreAttribute), true)) continue;
+
+                seen.Add(p.Name);
+                string jsonKey = GetJsonKeyName(p, hasDataContract, toLowerCase);
+                PropertyInfo captured = p;
+                getters[jsonKey] = obj => captured.GetValue(obj, null);
+            }
+
+            foreach (FieldInfo f in type.GetFields(NONPUBLIC_INSTANCE))
+            {
+                if (seen.Contains(f.Name)) continue;
+
+                bool hasDataMember = f.IsDefined(typeof(DataMemberAttribute), true);
+                bool hasJsonInclude = f.IsDefined(typeof(JsonIncludeAttribute), true);
+                if (!hasDataMember && !hasJsonInclude) continue;
+                if (f.IsDefined(typeof(IgnoreDataMemberAttribute), true)) continue;
+                if (f.IsDefined(typeof(JsonIgnoreAttribute), true)) continue;
+
+                seen.Add(f.Name);
+                string jsonKey = GetJsonKeyName(f, hasDataContract, toLowerCase);
+                FieldInfo captured = f;
+                getters[jsonKey] = obj => captured.GetValue(obj);
+            }
+
+            return getters;
+        }
+
+        private static bool ShouldSerializeMember(MemberInfo member, bool hasDataContract)
+        {
+            if (member.IsDefined(typeof(IgnoreDataMemberAttribute), true))
+                return false;
+            if (member.IsDefined(typeof(JsonIgnoreAttribute), true))
+                return false;
+
+            if (hasDataContract)
+                return member.IsDefined(typeof(DataMemberAttribute), true);
+
+            return true;
+        }
+
+        private static string GetJsonKeyName(MemberInfo member, bool hasDataContract, bool toLowerCase)
+        {
+            string jsonKey = member.Name;
+
+            if (hasDataContract)
+            {
+                DataMemberAttribute dataMember = (DataMemberAttribute)
+                    member.GetCustomAttributes(typeof(DataMemberAttribute), true)
+                    .FirstOrDefault();
+
+                if (dataMember != null && !string.IsNullOrEmpty(dataMember.Name))
+                    jsonKey = dataMember.Name;
+            }
+
+            if (toLowerCase)
+                jsonKey = ToCamelCaseStatic(jsonKey);
+
+            return jsonKey;
+        }
+
+        private static string ToCamelCaseStatic(string propertyName)
+        {
+            if (string.IsNullOrEmpty(propertyName))
+                return propertyName;
+
+            int i = 0;
+            while (i < propertyName.Length && char.IsUpper(propertyName[i]))
+                i++;
+
+            if (i == 0)
+                return propertyName;
+
+            if (i == 1)
+                return char.ToLowerInvariant(propertyName[0]) + propertyName.Substring(1);
+
+            return propertyName.Substring(0, i - 1).ToLowerInvariant() +
+                   propertyName.Substring(i - 1);
+        }
+
+        // ── 重写 BuildSetters 以支持 DataContract ───────────────────
+
+        private static IDictionary<string, Action<object, object>>
+            BuildSettersWithDataContract(Type type, bool toLowerCase)
+        {
+            var setters = new Dictionary<string, Action<object, object>>();
+            var seen = new HashSet<string>();
+            bool hasDataContract = HasDataContract(type);
+
+            Action<MemberInfo, Type, Action<object, object>> register =
+                (member, memberType, rawSetter) =>
+                {
+                    if (!ShouldDeserializeMember(member, hasDataContract)) return;
+                    if (seen.Contains(member.Name)) return;
+                    seen.Add(member.Name);
+
+                    Type capturedType = memberType;
+                    MemberInfo capturedMember = member;
+                    Action<object, object> safeSetter = (obj, val) =>
+                    {
+                        try
+                        {
+                            rawSetter(obj, CoerceValueStatic(val, capturedType));
+                        }
+                        catch (Exception ex)
+                        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                            Guard.LogWarning(
+                            "SetValue: Cannot assign to \"" +
+                            capturedMember.DeclaringType.FullName + "." +
+                            capturedMember.Name + "\". " + ex.Message);
+#endif
+                        }
+                    };
+
+                    string jsonKey = GetJsonKeyName(member, hasDataContract, toLowerCase);
+                    setters[jsonKey] = safeSetter;
+
+                    // JsonAlias 支持
+                    JsonAliasAttribute alias = member.GetCustomAttributes(typeof(JsonAliasAttribute), true)
+                        .FirstOrDefault() as JsonAliasAttribute;
+                    if (alias != null)
+                    {
+                        string aliasKey = toLowerCase
+                            ? ToCamelCaseStatic(alias.Alias)
+                            : alias.Alias;
+                        if (aliasKey != jsonKey)
+                            setters[aliasKey] = safeSetter;
+                    }
+                };
+
+            // public 属性
+            foreach (PropertyInfo p in type.GetProperties(PUBLIC_INSTANCE))
+            {
+                if (p.GetIndexParameters().Length > 0) continue;
+                if (!p.CanWrite) continue;
+                PropertyInfo captured = p;
+                register(p, p.PropertyType, (obj, val) => captured.SetValue(obj, val, null));
+            }
+
+            // public 字段
+            foreach (FieldInfo f in type.GetFields(PUBLIC_INSTANCE))
+            {
+                FieldInfo captured = f;
+                register(f, f.FieldType, (obj, val) => captured.SetValue(obj, val));
+            }
+
+            // non-public：DataMember 或 JsonInclude
+            foreach (PropertyInfo p in type.GetProperties(NONPUBLIC_INSTANCE))
+            {
+                if (p.GetIndexParameters().Length > 0) continue;
+                if (!p.CanWrite) continue;
+
+                bool hasDataMember = p.IsDefined(typeof(DataMemberAttribute), true);
+                bool hasJsonInclude = p.IsDefined(typeof(JsonIncludeAttribute), true);
+                if (!hasDataMember && !hasJsonInclude) continue;
+
+                PropertyInfo captured = p;
+                register(p, p.PropertyType, (obj, val) => captured.SetValue(obj, val, null));
+            }
+
+            foreach (FieldInfo f in type.GetFields(NONPUBLIC_INSTANCE))
+            {
+                bool hasDataMember = f.IsDefined(typeof(DataMemberAttribute), true);
+                bool hasJsonInclude = f.IsDefined(typeof(JsonIncludeAttribute), true);
+                if (!hasDataMember && !hasJsonInclude) continue;
+
+                FieldInfo captured = f;
+                register(f, f.FieldType, (obj, val) => captured.SetValue(obj, val));
+            }
+
+            return setters;
+        }
+
+        private static bool ShouldDeserializeMember(MemberInfo member, bool hasDataContract)
+        {
+            if (member.IsDefined(typeof(IgnoreDataMemberAttribute), true))
+                return false;
+            if (member.IsDefined(typeof(JsonIgnoreAttribute), true))
+                return false;
+
+            if (hasDataContract)
+                return member.IsDefined(typeof(DataMemberAttribute), true);
+
+            return true;
+        }
+
+        private static object CoerceValueStatic(object val, Type targetType)
+        {
+            // 简化版本，复用 DefaultJsonSerializationStrategy 的逻辑
+            // 实际使用时会调用实例方法
+            if (val == null) return null;
+            if (targetType.IsAssignableFrom(val.GetType())) return val;
+
+            Type underlying = Nullable.GetUnderlyingType(targetType);
+            if (underlying != null)
+                targetType = underlying;
+
+            return Convert.ChangeType(val, targetType, CultureInfo.InvariantCulture);
+        }
+
+        // ── 重写缓存方法 ─────────────────────────────────────────────
+
+        protected override IDictionary<string, Func<object, object>> GetOrBuildGetters(Type type)
+        {
+            // 使用 DataContract 版本的 BuildGetters
+            var cache = _getterCache;
+            IDictionary<string, Func<object, object>> cached;
+            if (cache.TryGetValue(type, out cached)) return cached;
+
+            lock (_getterBuildLock)
+            {
+                if (cache.TryGetValue(type, out cached)) return cached;
+                IDictionary<string, Func<object, object>> built;
+                try { built = BuildGettersWithDataContract(type, toLowerCase); }
+                catch (Exception ex)
+                {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                    Guard.LogError("GetOrBuildGetters: Failed for \"" +
+                        type.FullName + "\". " + ex.Message);
+#endif
+                    return new Dictionary<string, Func<object, object>>();
+                }
+                cache[type] = built;
+                return built;
+            }
+        }
+
+        protected override IDictionary<string, Action<object, object>> GetOrBuildSetters(Type type)
+        {
+            var cacheKey = new TypeCacheKey(type, toLowerCase);
+            var cache = _setterCache;
+            IDictionary<string, Action<object, object>> cached;
+            if (cache.TryGetValue(cacheKey, out cached)) return cached;
+
+            lock (_setterBuildLock)
+            {
+                if (cache.TryGetValue(cacheKey, out cached)) return cached;
+                IDictionary<string, Action<object, object>> built;
+                try { built = BuildSettersWithDataContract(type, toLowerCase); }
+                catch (Exception ex)
+                {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                    Guard.LogError("GetOrBuildSetters: Failed for \"" +
+                        type.FullName + "\". " + ex.Message);
+#endif
+                    return new Dictionary<string, Action<object, object>>();
+                }
+                cache[cacheKey] = built;
+                return built;
+            }
+        }
+    }
+}
+
+#endif // SIMPLE_JSON_DATACONTRACT
 
 
 // ReSharper restore LoopCanBeConvertedToQuery
