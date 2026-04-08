@@ -22,7 +22,7 @@
 ////sgd: 2025.12.15 support unity 3d
 ////sgd: 2025.11.10 support property To lower case
 ////sgd: 2025.10.1 support string key dictionary
-//// VERSION: 2.0.0
+//// VERSION: 2.0.1.0
 
 ////NOTE: uncomment the following line to make SimpleJson class internal.
 ////#define SIMPLE_JSON_INTERNAL
