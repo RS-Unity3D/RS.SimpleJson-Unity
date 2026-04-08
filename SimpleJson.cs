@@ -22,7 +22,7 @@
 ////sgd: 2025.12.15 support unity 3d
 ////sgd: 2025.11.10 support property To lower case
 ////sgd: 2025.10.1 support string key dictionary
-//// VERSION: 0.38.0
+//// VERSION: 2.0.0
 
 ////NOTE: uncomment the following line to make SimpleJson class internal.
 ////#define SIMPLE_JSON_INTERNAL
@@ -123,22 +123,30 @@ namespace RS.SimpleJsonUnity
         Inherited = true,AllowMultiple = false)]
     public sealed class JsonAliasAttribute : Attribute
     {
-        public string Alias { get; private set; }
+        public string[] Aliases { get; private set; }
+        public bool AcceptOriginalName { get; private set; }
 
-        public JsonAliasAttribute(string aliasName)
+        public JsonAliasAttribute(params string[] aliases)
         {
-            if (aliasName == null) throw new ArgumentNullException("aliasName");
-            Alias = aliasName;
+            if (aliases == null) throw new ArgumentNullException("aliases");
+            if (aliases.Length == 0) throw new ArgumentException("At least one alias is required.","aliases");
+            Aliases = aliases;
+            AcceptOriginalName = true;
         }
 
-        //// acceptOriginalName 参数保留以兼容旧调用代码，实际被忽略。
-        //// 原始名始终注册，与 LitJSON 行为对齐。
-        //[Obsolete("acceptOriginalName is ignored. Original name is always registered for deserialization.")]
-        //public JsonAliasAttribute(string aliasName,bool acceptOriginalName)
-        //{
-        //    if (aliasName == null) throw new ArgumentNullException("aliasName");
-        //    Alias = aliasName;
-        //}
+        public JsonAliasAttribute(bool acceptOriginalName,params string[] aliases)
+        {
+            if (aliases == null) throw new ArgumentNullException("aliases");
+            if (aliases.Length == 0) throw new ArgumentException("At least one alias is required.","aliases");
+            Aliases = aliases;
+            AcceptOriginalName = acceptOriginalName;
+        }
+
+        [Obsolete("Use Aliases property instead. This property returns the first alias for backward compatibility.")]
+        public string Alias
+        {
+            get { return Aliases != null && Aliases.Length > 0 ? Aliases[0] : null; }
+        }
     }
     static class Constants
     {
@@ -472,6 +480,11 @@ namespace RS.SimpleJsonUnity
         // 建议在初始化阶段一次性设定，之后不再修改。
         public volatile bool toLowerCase;
 
+        // 控制序列化时是否使用 JsonAlias 的第一个别名作为输出键名
+        // 默认 false（与 Newtonsoft.Json 行为一致）：序列化使用原始属性名
+        // 设为 true 时：序列化使用 Aliases[0] 作为键名（如果存在 JsonAlias）
+        public volatile bool useJsonAliasForSerialization;
+
         protected const BindingFlags PUBLIC_INSTANCE =
             BindingFlags.Public | BindingFlags.Instance;
         protected const BindingFlags NONPUBLIC_INSTANCE =
@@ -506,6 +519,13 @@ namespace RS.SimpleJsonUnity
 #else
             toLowerCase = false;
 #endif
+            useJsonAliasForSerialization = false;
+        }
+
+        public DefaultJsonSerializationStrategy(bool toLowerCase,bool useJsonAliasForSerialization)
+        {
+            this.toLowerCase = toLowerCase;
+            this.useJsonAliasForSerialization = useJsonAliasForSerialization;
         }
 
         // ── Attribute 辅助 ──────────────────────────────────────────
@@ -519,6 +539,17 @@ namespace RS.SimpleJsonUnity
         {
             object[] attrs = member.GetCustomAttributes(typeof(T),true);
             return attrs.Length > 0 ? (T)attrs[0] : null;
+        }
+
+        private static MemberInfo FindMemberByName(Type type,string name)
+        {
+            PropertyInfo prop = type.GetProperty(name,PUBLIC_INSTANCE);
+            if (prop != null) return prop;
+            
+            FieldInfo field = type.GetField(name,PUBLIC_INSTANCE);
+            if (field != null) return field;
+
+            return null;
         }
 
         // ── MapClrMemberNameToJsonFieldName ─────────────────────────
@@ -753,7 +784,7 @@ namespace RS.SimpleJsonUnity
         // ── BuildGetters ────────────────────────────────────────────
 
         private static IDictionary<string,Func<object,object>>
-            BuildGetters(Type type)
+            BuildGetters(Type type,bool useJsonAlias)
         {
             var getters = new Dictionary<string,Func<object,object>>();
             // seen：按成员名去重，优先最派生版本（GetProperties 返回顺序保证）
@@ -770,7 +801,18 @@ namespace RS.SimpleJsonUnity
 
                 seen.Add(p.Name);
                 PropertyInfo captured = p;
-                getters[p.Name] = obj => captured.GetValue(obj,null);
+
+                string key = p.Name;
+                if (useJsonAlias)
+                {
+                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(p);
+                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                    {
+                        key = aliasAttr.Aliases[0];
+                    }
+                }
+
+                getters[key] = obj => captured.GetValue(obj,null);
             }
 
             // public 字段
@@ -781,7 +823,18 @@ namespace RS.SimpleJsonUnity
 
                 seen.Add(f.Name);
                 FieldInfo captured = f;
-                getters[f.Name] = obj => captured.GetValue(obj);
+
+                string key = f.Name;
+                if (useJsonAlias)
+                {
+                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(f);
+                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                    {
+                        key = aliasAttr.Aliases[0];
+                    }
+                }
+
+                getters[key] = obj => captured.GetValue(obj);
             }
 
             // non-public：仅 JsonInclude，JsonIgnore 优先
@@ -795,7 +848,18 @@ namespace RS.SimpleJsonUnity
 
                 seen.Add(p.Name);
                 PropertyInfo captured = p;
-                getters[p.Name] = obj => captured.GetValue(obj,null);
+
+                string key = p.Name;
+                if (useJsonAlias)
+                {
+                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(p);
+                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                    {
+                        key = aliasAttr.Aliases[0];
+                    }
+                }
+
+                getters[key] = obj => captured.GetValue(obj,null);
             }
 
             foreach (FieldInfo f in type.GetFields(NONPUBLIC_INSTANCE))
@@ -806,7 +870,18 @@ namespace RS.SimpleJsonUnity
 
                 seen.Add(f.Name);
                 FieldInfo captured = f;
-                getters[f.Name] = obj => captured.GetValue(obj);
+
+                string key = f.Name;
+                if (useJsonAlias)
+                {
+                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(f);
+                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                    {
+                        key = aliasAttr.Aliases[0];
+                    }
+                }
+
+                getters[key] = obj => captured.GetValue(obj);
             }
 
             return getters;
@@ -851,16 +926,25 @@ namespace RS.SimpleJsonUnity
                     string originalKey = toLowerCase
                     ? member.Name.ToLower(CultureInfo.InvariantCulture)
                     : member.Name;
-                    setters[originalKey] = safeSetter;
 
-                    JsonAliasAttribute alias = GetAttribute<JsonAliasAttribute>(member);
-                    if (alias != null)
+                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(member);
+                    if (aliasAttr != null)
                     {
-                        string aliasKey = toLowerCase
-                        ? alias.Alias.ToLower(CultureInfo.InvariantCulture)
-                        : alias.Alias;
-                        if (aliasKey != originalKey)
+                        foreach (string alias in aliasAttr.Aliases)
+                        {
+                            string aliasKey = toLowerCase
+                            ? alias.ToLower(CultureInfo.InvariantCulture)
+                            : alias;
                             setters[aliasKey] = safeSetter;
+                        }
+                        if (aliasAttr.AcceptOriginalName)
+                        {
+                            setters[originalKey] = safeSetter;
+                        }
+                    }
+                    else
+                    {
+                        setters[originalKey] = safeSetter;
                     }
                 };
 
@@ -975,7 +1059,7 @@ namespace RS.SimpleJsonUnity
                 IDictionary<string,Func<object,object>> cached;
                 if (_getterCache.TryGetValue(type,out cached)) return cached;
                 IDictionary<string,Func<object,object>> built;
-                try { built = BuildGetters(type); }
+                try { built = BuildGetters(type, useJsonAliasForSerialization); }
                 catch (Exception ex)
                 {
 #if DEBUG
@@ -1108,7 +1192,36 @@ namespace RS.SimpleJsonUnity
 
             foreach (KeyValuePair<string,Func<object,object>> kvp in getters)
             {
-                string jsonKey = MapClrMemberNameToJsonFieldName(kvp.Key);
+                string jsonKey;
+                
+                if (useJsonAliasForSerialization)
+                {
+                    // 查找该成员的 JsonAlias
+                    MemberInfo member = FindMemberByName(type,kvp.Key);
+                    if (member != null)
+                    {
+                        JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(member);
+                        if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                        {
+                            jsonKey = aliasAttr.Aliases[0];
+                            if (toLowerCase)
+                                jsonKey = jsonKey.ToLower(CultureInfo.InvariantCulture);
+                        }
+                        else
+                        {
+                            jsonKey = MapClrMemberNameToJsonFieldName(kvp.Key);
+                        }
+                    }
+                    else
+                    {
+                        jsonKey = MapClrMemberNameToJsonFieldName(kvp.Key);
+                    }
+                }
+                else
+                {
+                    jsonKey = MapClrMemberNameToJsonFieldName(kvp.Key);
+                }
+
                 object val = kvp.Value(input);
                 result[jsonKey] = val;
             }
@@ -2602,7 +2715,7 @@ namespace RS.SimpleJsonUnity
         // ── 重写 BuildGetters 以支持 DataContract ───────────────────
 
         private static IDictionary<string, Func<object, object>>
-            BuildGettersWithDataContract(Type type, bool toLowerCase)
+            BuildGettersWithDataContract(Type type, bool toLowerCase,bool useJsonAlias)
         {
             var getters = new Dictionary<string, Func<object, object>>();
             var seen = new HashSet<string>();
@@ -2618,7 +2731,27 @@ namespace RS.SimpleJsonUnity
                 if (!ShouldSerializeMember(p, hasDataContract)) continue;
 
                 seen.Add(p.Name);
-                string jsonKey = GetJsonKeyName(p, hasDataContract, toLowerCase);
+                string jsonKey;
+                
+                if (useJsonAlias)
+                {
+                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(p);
+                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                    {
+                        jsonKey = aliasAttr.Aliases[0];
+                        if (toLowerCase)
+                            jsonKey = ToCamelCaseStatic(jsonKey);
+                    }
+                    else
+                    {
+                        jsonKey = GetJsonKeyName(p, hasDataContract, toLowerCase);
+                    }
+                }
+                else
+                {
+                    jsonKey = GetJsonKeyName(p, hasDataContract, toLowerCase);
+                }
+                
                 PropertyInfo captured = p;
                 getters[jsonKey] = obj => captured.GetValue(obj, null);
             }
@@ -2631,7 +2764,27 @@ namespace RS.SimpleJsonUnity
                 if (!ShouldSerializeMember(f, hasDataContract)) continue;
 
                 seen.Add(f.Name);
-                string jsonKey = GetJsonKeyName(f, hasDataContract, toLowerCase);
+                string jsonKey;
+                
+                if (useJsonAlias)
+                {
+                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(f);
+                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                    {
+                        jsonKey = aliasAttr.Aliases[0];
+                        if (toLowerCase)
+                            jsonKey = ToCamelCaseStatic(jsonKey);
+                    }
+                    else
+                    {
+                        jsonKey = GetJsonKeyName(f, hasDataContract, toLowerCase);
+                    }
+                }
+                else
+                {
+                    jsonKey = GetJsonKeyName(f, hasDataContract, toLowerCase);
+                }
+                
                 FieldInfo captured = f;
                 getters[jsonKey] = obj => captured.GetValue(obj);
             }
@@ -2651,7 +2804,27 @@ namespace RS.SimpleJsonUnity
                 if (p.IsDefined(typeof(JsonIgnoreAttribute), true)) continue;
 
                 seen.Add(p.Name);
-                string jsonKey = GetJsonKeyName(p, hasDataContract, toLowerCase);
+                string jsonKey;
+                
+                if (useJsonAlias)
+                {
+                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(p);
+                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                    {
+                        jsonKey = aliasAttr.Aliases[0];
+                        if (toLowerCase)
+                            jsonKey = ToCamelCaseStatic(jsonKey);
+                    }
+                    else
+                    {
+                        jsonKey = GetJsonKeyName(p, hasDataContract, toLowerCase);
+                    }
+                }
+                else
+                {
+                    jsonKey = GetJsonKeyName(p, hasDataContract, toLowerCase);
+                }
+                
                 PropertyInfo captured = p;
                 getters[jsonKey] = obj => captured.GetValue(obj, null);
             }
@@ -2667,7 +2840,27 @@ namespace RS.SimpleJsonUnity
                 if (f.IsDefined(typeof(JsonIgnoreAttribute), true)) continue;
 
                 seen.Add(f.Name);
-                string jsonKey = GetJsonKeyName(f, hasDataContract, toLowerCase);
+                string jsonKey;
+                
+                if (useJsonAlias)
+                {
+                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(f);
+                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                    {
+                        jsonKey = aliasAttr.Aliases[0];
+                        if (toLowerCase)
+                            jsonKey = ToCamelCaseStatic(jsonKey);
+                    }
+                    else
+                    {
+                        jsonKey = GetJsonKeyName(f, hasDataContract, toLowerCase);
+                    }
+                }
+                else
+                {
+                    jsonKey = GetJsonKeyName(f, hasDataContract, toLowerCase);
+                }
+                
                 FieldInfo captured = f;
                 getters[jsonKey] = obj => captured.GetValue(obj);
             }
@@ -2763,18 +2956,27 @@ namespace RS.SimpleJsonUnity
                     };
 
                     string jsonKey = GetJsonKeyName(member, hasDataContract, toLowerCase);
-                    setters[jsonKey] = safeSetter;
 
                     // JsonAlias 支持
-                    JsonAliasAttribute alias = member.GetCustomAttributes(typeof(JsonAliasAttribute), true)
+                    JsonAliasAttribute aliasAttr = member.GetCustomAttributes(typeof(JsonAliasAttribute), true)
                         .FirstOrDefault() as JsonAliasAttribute;
-                    if (alias != null)
+                    if (aliasAttr != null)
                     {
-                        string aliasKey = toLowerCase
-                            ? ToCamelCaseStatic(alias.Alias)
-                            : alias.Alias;
-                        if (aliasKey != jsonKey)
+                        foreach (string alias in aliasAttr.Aliases)
+                        {
+                            string aliasKey = toLowerCase
+                                ? ToCamelCaseStatic(alias)
+                                : alias;
                             setters[aliasKey] = safeSetter;
+                        }
+                        if (aliasAttr.AcceptOriginalName)
+                        {
+                            setters[jsonKey] = safeSetter;
+                        }
+                    }
+                    else
+                    {
+                        setters[jsonKey] = safeSetter;
                     }
                 };
 
@@ -2861,7 +3063,7 @@ namespace RS.SimpleJsonUnity
             {
                 if (cache.TryGetValue(type, out cached)) return cached;
                 IDictionary<string, Func<object, object>> built;
-                try { built = BuildGettersWithDataContract(type, toLowerCase); }
+                try { built = BuildGettersWithDataContract(type, toLowerCase, useJsonAliasForSerialization); }
                 catch (Exception ex)
                 {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
