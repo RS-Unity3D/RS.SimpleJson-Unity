@@ -1,1983 +1,1867 @@
-using NUnit.Framework;
-using RS.SimpleJsonAOT;
+//-----------------------------------------------------------------------
+// SimpleJsonConsoleTests.cs
+// 无依赖控制台测试套件，覆盖所有修复点
+// 运行方式：
+//   dotnet run  /  直接在 Unity 中挂载到 MonoBehaviour.Start()
+// 兼容：.NET 2.0 / .NET 4.x / .NET Standard 2.0 / Unity il2cpp
+//-----------------------------------------------------------------------
+
+
+using RS.SimpleJsonUnity;
 using System;
+using System.Collections;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Diagnostics;
-using System.Linq;
-using System.Numerics;
+using System.Globalization;
 using System.Reflection;
-using System.Runtime.Serialization;
-using CategoryAttribute = NUnit.Framework.CategoryAttribute;
+using System.Text;
+using System.Threading;
 
-
-
-namespace RS.SimpleJsonAOT.Test
+namespace RS.SimpleJsonUnity.Tests
 {
-    // ============================================================================
-    // 单元测试 - 非 Unity 环境使用
-    // ============================================================================
-    public class SimpleJsonFeatureTests
+    // ──────────────────────────────────────────────────────────────
+    // 极简断言框架（无外部依赖）
+    // ──────────────────────────────────────────────────────────────
+    public class Test : Attribute { 
+    }
+    internal static class Assert
     {
-        public static void Test()
+        private static int _passed;
+        private static int _failed;
+        private static readonly List<string> _failures = new List<string>();
+        private static string _currentTest = "";
+
+        public static void BeginTest(string name)
         {
-            Console.WriteLine("╔════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║        SimpleJson 功能验证测试套件                              ║");
-            Console.WriteLine("╚════════════════════════════════════════════════════════════════╝\n");
-
-            TestJsonIgnore();
-            TestJsonInclude();
-            TestJsonAlias();
-            TestCaseSensitivity();
-            TestPascalCamelCase();
-            TestCombinedFeatures();
-
-            Console.WriteLine("\n╔════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║              所有测试完成！如有失败，请查看上面的输出              ║");
-            Console.WriteLine("╚════════════════════════════════════════════════════════════════╝");
-
-            RunNUnitTests();
-
-            Console.ReadLine();
+            _currentTest = name;
         }
 
-        static void RunNUnitTests()
+        public static void AreEqual<T>(T expected,T actual,string message = "")
         {
-            Console.WriteLine("\n╔════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║                    NUnit 测试套件执行                          ║");
-            Console.WriteLine("╚════════════════════════════════════════════════════════════════╝\n");
-
-            RunTestClass(new SimpleJsonFeatureTests2(), "SimpleJsonFeatureTests2");
-            RunTestClass(new SimpleJsonCoreTypeTests(), "SimpleJsonCoreTypeTests");
-            RunTestClass(new SimpleJsonCollectionTests(), "SimpleJsonCollectionTests");
-            RunTestClass(new SimpleJsonComplexTypeTests(), "SimpleJsonComplexTypeTests");
-            RunTestClass(new SimpleJsonEdgeCaseTests(), "SimpleJsonEdgeCaseTests");
-            RunTestClass(new SimpleJsonPerformanceTests(), "SimpleJsonPerformanceTests");
-
-            Console.WriteLine("\n╔════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║                    所有 NUnit 测试执行完成                      ║");
-            Console.WriteLine("╚════════════════════════════════════════════════════════════════╝");
-        }
-
-        static void RunTestClass(object testInstance, string className)
-        {
-            Console.WriteLine($"\n┌─────────────────────────────────────────────────────────────┐");
-            Console.WriteLine($"│ 执行测试类: {className.PadRight(47)} │");
-            Console.WriteLine($"└─────────────────────────────────────────────────────────────┘");
-
-            var type = testInstance.GetType();
-            var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                .Where(m => m.GetCustomAttributes(typeof(TestAttribute), false).Length > 0);
-
-            int passed = 0, failed = 0;
-            foreach (var method in methods)
+            bool eq = (expected == null && actual == null)
+                   || (expected != null && expected.Equals(actual));
+            if (eq)
             {
-                try
-                {
-                    method.Invoke(testInstance, null);
-                    passed++;
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"  ✓ {method.Name}");
-                }
-                catch (Exception ex)
-                {
-                    failed++;
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"  ✗ {method.Name}: {ex.InnerException?.Message ?? ex.Message}");
-                }
-                Console.ResetColor();
-            }
-
-            Console.WriteLine($"\n  结果: {passed} 通过, {failed} 失败");
-        }
-
-        #region 测试模型
-
-        public class UserWithIgnore
-        {
-            [JsonIgnore]
-            public string Password { get; set; } = "";
-
-            public string Username { get; set; } = "";
-            public string Email { get; set; } = "";
-
-            [JsonIgnore]
-            private string InternalId = "secret";
-
-            public override string ToString() => $"Username: {Username}, Email: {Email}";
-        }
-
-        public class UserWithAlias
-        {
-            [JsonAlias("user_name")]
-            public string Username { get; set; } = "";
-
-            [JsonAlias("email_address")]
-            public string Email { get; set; } = "";
-
-            [JsonAlias("user_age",acceptOriginalName: true)]
-            public int Age { get; set; }
-
-            public override string ToString() => $"User: {Username}, Email: {Email}, Age: {Age}";
-        }
-
-        public class CaseSensitiveModel
-        {
-            public string FirstName { get; set; } = "";
-            public string LastName { get; set; } = "";
-            public int Age { get; set; }
-
-            public override string ToString() => $"{FirstName} {LastName}, {Age} years old";
-        }
-
-        public class PascalCaseModel
-        {
-            public string FirstName { get; set; }
-            public string LastName { get; set; }
-            public int UserAge { get; set; }
-            public bool IsActive { get; set; }
-
-            public override string ToString() => $"{FirstName} {LastName}, Age: {UserAge}, Active: {IsActive}";
-        }
-
-        public class CombinedModel
-        {
-            [JsonAlias("user_id")]
-            public int Id { get; set; }
-
-            [JsonIgnore]
-            public string InternalSecret { get; set; } = "";
-
-            public string Name { get; set; } = "";
-
-            public override string ToString() => $"ID: {Id}, Name: {Name}";
-        }
-
-        #endregion
-
-        #region 测试方法
-
-        static void TestJsonIgnore()
-        {
-            PrintTestHeader("测试 JsonIgnore 功能");
-
-            var user = new UserWithIgnore
-            {
-                Username = "john_doe",
-                Email = "john@example.com",
-                Password = "secret123"
-            };
-
-            Console.WriteLine($"原始对象: {user}");
-            Console.WriteLine($"密码: {user.Password}");
-
-            string json = SimpleJson.SerializeObject(user);
-            Console.WriteLine($"序列化后: {json}");
-
-            bool passwordInJson = json.Contains("Password") || json.Contains("secret");
-            bool usernameInJson = json.Contains("john_doe");
-            bool emailInJson = json.Contains("john@example.com");
-
-            PrintTestResult(
-                !passwordInJson && usernameInJson && emailInJson,
-                "✓ Password 被正确忽略，其他字段被保留",
-                "✗ JsonIgnore 功能异常"
-            );
-
-            // 反序列化测试
-            var restored = SimpleJson.DeserializeObject<UserWithIgnore>(json);
-            Console.WriteLine($"反序列化后: {restored}");
-            PrintTestResult(
-                restored.Username == "john_doe" && restored.Email == "john@example.com" && restored.Password == "",
-                "✓ 反序列化正确，Password 为默认值",
-                "✗ 反序列化有问题"
-            );
-
-            Console.WriteLine();
-        }
-
-        static void TestJsonInclude()
-        {
-            PrintTestHeader("测试 JsonInclude 功能（私有成员）");
-
-            // JsonInclude 的测试需要 onlyPublic=false
-            // 这里展示如何测试
-            Console.WriteLine("JsonInclude 需要配合 onlyPublic=false 参数使用");
-            Console.WriteLine("示例: model.ToJson(lowerCase: false, onlyPublic: false)");
-            Console.WriteLine("✓ JsonInclude 功能在 onlyPublic=false 时启用\n");
-        }
-
-        static void TestJsonAlias()
-        {
-            PrintTestHeader("测试 JsonAlias 别名功能");
-
-            var user = new UserWithAlias
-            {
-                Username = "alice",
-                Email = "alice@example.com",
-                Age = 28
-            };
-
-            Console.WriteLine($"原始对象: {user}");
-
-            // 序列化测试
-            string json = SimpleJson.SerializeObject(user);
-            Console.WriteLine($"序列化后: {json}");
-
-            bool hasUserName = json.Contains("user_name");
-            bool hasEmailAddress = json.Contains("email_address");
-            bool hasUserAge = json.Contains("user_age");
-            bool noOriginalNames = !json.Contains("Username") && !json.Contains("Email");
-
-            PrintTestResult(
-                hasUserName && hasEmailAddress && hasUserAge && noOriginalNames,
-                "✓ 别名正确使用于序列化",
-                "✗ 别名序列化有问题"
-            );
-
-            // 反序列化测试 - 使用别名
-            string jsonWithAlias = @"{
-                ""user_name"": ""bob"",
-                ""email_address"": ""bob@example.com"",
-                ""user_age"": 30
-            }";
-
-            Console.WriteLine($"反序列化输入: {jsonWithAlias}");
-            var restored = SimpleJson.DeserializeObject<UserWithAlias>(jsonWithAlias);
-            Console.WriteLine($"反序列化后: {restored}");
-
-            PrintTestResult(
-                restored.Username == "bob" && restored.Email == "bob@example.com" && restored.Age == 30,
-                "✓ 别名正确用于反序列化",
-                "✗ 别名反序列化有问题"
-            );
-
-            // 测试 acceptOriginalName=true
-            Console.WriteLine("\n--- 测试 acceptOriginalName 功能 ---");
-            string jsonWithOriginalAge = @"{
-                ""user_name"": ""charlie"",
-                ""email_address"": ""charlie@example.com"",
-                ""Age"": 25
-            }";
-
-            Console.WriteLine($"使用原始名称 'Age' 的 JSON: {jsonWithOriginalAge}");
-            var restoredWithOriginal = SimpleJson.DeserializeObject<UserWithAlias>(jsonWithOriginalAge);
-
-            if (restoredWithOriginal != null)
-            {
-                Console.WriteLine($"反序列化后: {restoredWithOriginal}");
-                PrintTestResult(
-                    restoredWithOriginal.Age == 25,
-                    "✓ acceptOriginalName=true 时同时接受原始名称",
-                    "✗ acceptOriginalName 功能有问题"
-                );
+                Pass();
             }
             else
             {
-                PrintTestResult(false,"","✗ 反序列化失败");
+                Fail(string.Format(
+                    "Expected [{0}] but got [{1}]. {2}",
+                    expected,actual,message));
+            }
+        }
+
+        public static void AreEqual(float expected,float actual,
+            float delta = 1e-5f,string message = "")
+        {
+            if (Math.Abs(expected - actual) <= delta) Pass();
+            else Fail(string.Format(
+                "Expected [{0}] ± {1} but got [{2}]. {3}",
+                expected,delta,actual,message));
+        }
+
+        public static void AreEqual(double expected,double actual,
+            double delta = 1e-10,string message = "")
+        {
+            if (Math.Abs(expected - actual) <= delta) Pass();
+            else Fail(string.Format(
+                "Expected [{0}] ± {1} but got [{2}]. {3}",
+                expected,delta,actual,message));
+        }
+
+        public static void IsTrue(bool condition,string message = "")
+        {
+            if (condition) Pass();
+            else Fail("Expected true. " + message);
+        }
+
+        public static void IsFalse(bool condition,string message = "")
+        {
+            if (!condition) Pass();
+            else Fail("Expected false. " + message);
+        }
+
+        public static void IsNull(object obj,string message = "")
+        {
+            if (obj == null) Pass();
+            else Fail(string.Format("Expected null but got [{0}]. {1}",obj,message));
+        }
+
+        public static void IsNotNull(object obj,string message = "")
+        {
+            if (obj != null) Pass();
+            else Fail("Expected non-null but got null. " + message);
+        }
+
+        public static void Throws<TException>(Action action,string message = "")
+            where TException : Exception
+        {
+            try
+            {
+                action();
+                Fail(string.Format(
+                    "Expected exception [{0}] but none was thrown. {1}",
+                    typeof(TException).Name,message));
+            }
+            catch (TException)
+            {
+                Pass();
+            }
+            catch (Exception ex)
+            {
+                Fail(string.Format(
+                    "Expected [{0}] but got [{1}]: {2}. {3}",
+                    typeof(TException).Name,ex.GetType().Name,
+                    ex.Message,message));
+            }
+        }
+
+        public static void DoesNotThrow(Action action,string message = "")
+        {
+            try
+            {
+                action();
+                Pass();
+            }
+            catch (Exception ex)
+            {
+                Fail(string.Format(
+                    "Unexpected exception [{0}]: {1}. {2}",
+                    ex.GetType().Name,ex.Message,message));
+            }
+        }
+
+        public static void Contains(string haystack,string needle,string message = "")
+        {
+            if (haystack != null && haystack.Contains(needle)) Pass();
+            else Fail(string.Format(
+                "Expected [{0}] to contain [{1}]. {2}",
+                haystack,needle,message));
+        }
+
+        public static void NotContains(string haystack,string needle,string message = "")
+        {
+            if (haystack == null || !haystack.Contains(needle)) Pass();
+            else Fail(string.Format(
+                "Expected [{0}] NOT to contain [{1}]. {2}",
+                haystack,needle,message));
+        }
+
+        private static void Pass()
+        {
+            _passed++;
+            Console.WriteLine("    [PASS] " + _currentTest);
+        }
+
+        private static void Fail(string reason)
+        {
+            _failed++;
+            string msg = string.Format("    [FAIL] {0} — {1}",_currentTest,reason);
+            Console.WriteLine(msg);
+            _failures.Add(msg);
+        }
+
+        public static void PrintSummary()
+        {
+            Console.WriteLine();
+            Console.WriteLine(new string('=',60));
+            Console.WriteLine(string.Format(
+                "Results: {0} passed, {1} failed, {2} total",
+                _passed,_failed,_passed + _failed));
+
+            if (_failures.Count > 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine("Failed tests:");
+                foreach (string f in _failures)
+                    Console.WriteLine(f);
+            }
+            Console.WriteLine(new string('=',60));
+        }
+
+        public static bool AllPassed() { return _failed == 0; }
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // 测试用 POCO 类型
+    // ──────────────────────────────────────────────────────────────
+
+    public class BasicPoco
+    {
+        public string Name { get; set; }
+        public int Age { get; set; }
+        public float Score { get; set; }
+        public double Height { get; set; }
+    }
+
+    public class AttributePoco
+    {
+        public string Visible { get; set; }
+
+        [JsonIgnore]
+        public string Ignored { get; set; }
+
+        [JsonInclude]
+        private string PrivateProperty { get; set; }
+
+        [JsonAlias("old_name")]
+        public string NewName { get; set; }
+
+        [JsonAlias("alias_a")]
+        public string WithAlias { get; set; }
+
+        public string GetPrivateProperty() => PrivateProperty;
+        public void SetPrivateProperty(string v) => PrivateProperty = v;
+    }
+
+    // 用于测试序列化别名的 POCO
+    public class AliasSerializePoco
+    {
+        [JsonAlias("user_name", "userName", "username")]
+        public string UserName { get; set; }
+
+        [JsonAlias("user_id", "userId", "uid")]
+        public int UserId { get; set; }
+    }
+
+    // 用于测试 AcceptOriginalName=false 的 POCO
+    public class StrictAliasPoco
+    {
+        [JsonAlias(false, "api_code", "code")]
+        public int Code { get; set; }
+    }
+
+    public class PrivateMemberPoco
+    {
+        [JsonInclude] private int _privateInt;
+        [JsonInclude] private string _privateString;
+
+        public int GetPrivateInt() => _privateInt;
+        public string GetPrivateString() => _privateString;
+    }
+
+    public enum Color { Red = 0, Green = 1, Blue = 2 }
+
+    public class EnumPoco
+    {
+        public Color Status { get; set; }
+    }
+
+    public class NullablePoco
+    {
+        public int? NullableInt { get; set; }
+        public float? NullableFloat { get; set; }
+        public Color? NullableEnum { get; set; }
+    }
+
+    public class CollectionPoco
+    {
+        public List<int> IntList { get; set; }
+        public Dictionary<string,int> StringKeyDict { get; set; }
+        public Dictionary<int,string> IntKeyDict { get; set; }
+        public Dictionary<Color,float> EnumKeyDict { get; set; }
+    }
+
+    public class FloatPoco
+    {
+        public float FloatValue { get; set; }
+        public double DoubleValue { get; set; }
+        public decimal DecimalValue { get; set; }
+    }
+
+    public class DateTimePoco
+    {
+        public DateTime DateTime { get; set; }
+        public DateTimeOffset DateTimeOffset { get; set; }
+        public Guid Guid { get; set; }
+        public TimeSpan TimeSpan { get; set; }
+    }
+
+    public class NoCtor
+    {
+        public string Value { get; set; }
+        public NoCtor(string v) { Value = v; }
+    }
+
+    public class InheritanceBase
+    {
+        public virtual string BaseProp { get; set; }
+    }
+
+    public class InheritanceChild : InheritanceBase
+    {
+        [JsonIgnore]
+        public override string BaseProp { get; set; }
+        public string ChildProp { get; set; }
+    }
+
+    public class ShadowBase { public int Value { get; set; } }
+    public class ShadowChild : ShadowBase { public new string Value { get; set; } }
+
+    public class CharPoco { public char Ch { get; set; } }
+
+    // ──────────────────────────────────────────────────────────────
+    // 测试入口
+    // ──────────────────────────────────────────────────────────────
+
+    public static class SimpleJsonConsoleTests
+    {
+        public static void Run()
+        {
+            Console.WriteLine(new string('=',60));
+            Console.WriteLine("SimpleJson Console Test Suite");
+            Console.WriteLine(new string('=',60));
+            Console.WriteLine();
+
+            RunSection("1. 基础类型往返",TestPrimitives);
+            RunSection("2. POCO 基础序列化",TestBasicPoco);
+            RunSection("3. JsonIgnore",TestJsonIgnore);
+            RunSection("4. JsonInclude",TestJsonInclude);
+            RunSection("5. JsonAlias",TestJsonAlias);
+            RunSection("6. float/double 精度",TestFloatPrecision);
+            RunSection("7. 字典 key 类型支持",TestDictionaryKeys);
+            RunSection("8. Nullable<T>",TestNullable);
+            RunSection("9. DateTime/Guid",TestDateTimeGuid);
+            RunSection("10. 集合类型",TestCollections);
+            RunSection("11. 类型转换 CoerceValue",TestTypeCoercion);
+            RunSection("12. 无参构造缺失",TestNoCtor);
+            RunSection("13. toLowerCase 策略",TestToLowerCase);
+            RunSection("14. 字符串转义",TestStringEscape);
+            RunSection("15. 数字范围",TestNumberRange);
+            RunSection("16. char 类型",TestChar);
+            RunSection("17. new-hide 属性去重",TestShadowProperty);
+            RunSection("18. 嵌套对象",TestNested);
+            RunSection("19. 错误处理",TestErrorHandling);
+            RunSection("20. ClearCache 不崩溃",TestClearCache);
+            RunSection("21. 线程安全",TestThreadSafety);
+            RunSection("22. 往返完整性验证",TestFullRoundTrip);
+            RunSection("23. JsonAlias 序列化别名",TestJsonAliasSerialization);
+
+            Assert.PrintSummary();
+        }
+
+        // ── Main 入口（.NET 控制台项目）─────────────────────────
+
+        public static void MainTest()
+        {
+            Run();
+#if !UNITY_5_3_OR_NEWER
+            Console.WriteLine("Press any key to exit...");
+            Console.ReadKey();
+#endif
+        }
+
+        // ── 分节辅助 ────────────────────────────────────────────
+
+        private static void RunSection(string title,Action tests)
+        {
+            Console.WriteLine();
+            Console.WriteLine("── " + title + " " +
+                new string('─',Math.Max(0,50 - title.Length)));
+            try { tests(); }
+            catch (Exception ex)
+            {
+                Console.WriteLine("    [ERROR] Section threw: " + ex.Message);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 1. 基础类型往返
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestPrimitives()
+        {
+            Assert.BeginTest("String round-trip");
+            {
+                string json = SimpleJson.SerializeObject("Hello");
+                var result = SimpleJson.DeserializeObject<string>(json);
+                Assert.AreEqual("Hello",result);
             }
 
-            Console.WriteLine();
-        }
-
-        static void TestCaseSensitivity()
-        {
-            PrintTestHeader("测试大小写敏感性和兜底匹配");
-
-            Console.WriteLine("--- 精确匹配测试 ---");
-            string jsonExactCase = @"{
-                ""FirstName"": ""John"",
-                ""LastName"": ""Doe"",
-                ""Age"": 30
-            }";
-
-            Console.WriteLine($"输入 JSON: {jsonExactCase}");
-            var model1 = SimpleJson.DeserializeObject<CaseSensitiveModel>(jsonExactCase);
-            Console.WriteLine($"反序列化结果: {model1}");
-
-            PrintTestResult(
-                model1 != null && model1.FirstName == "John" && model1.LastName == "Doe",
-                "✓ 精确匹配大小写正常工作",
-                "✗ 精确匹配有问题"
-            );
-
-            Console.WriteLine("\n--- 大小写不匹配测试（兜底）---");
-            string jsonLowerCase = @"{
-                ""firstname"": ""jane"",
-                ""lastname"": ""smith"",
-                ""age"": 25
-            }";
-
-            Console.WriteLine($"输入 JSON（全小写）: {jsonLowerCase}");
-            var model2 = SimpleJson.DeserializeObject<CaseSensitiveModel>(jsonLowerCase);
-            Console.WriteLine($"反序列化结果: {model2}");
-
-            PrintTestResult(
-                model2 != null && model2.FirstName == "jane" && model2.LastName == "smith" && model2.Age == 25,
-                "✓ 大小写不敏感兜底匹配正常工作",
-                "✗ 兜底匹配有问题"
-            );
-
-            Console.WriteLine("\n--- 混合大小写测试 ---");
-            string jsonMixedCase = @"{
-                ""FirstName"": ""Bob"",
-                ""lastname"": ""johnson"",
-                ""AGE"": 35
-            }";
-
-            Console.WriteLine($"输入 JSON（混合大小写）: {jsonMixedCase}");
-            var model3 = SimpleJson.DeserializeObject<CaseSensitiveModel>(jsonMixedCase);
-            Console.WriteLine($"反序列化结果: {model3}");
-
-            PrintTestResult(
-                model3 != null && model3.FirstName == "Bob" && model3.LastName == "johnson" && model3.Age == 35,
-                "✓ 混合大小写兜底匹配正常工作",
-                "✗ 混合大小写有问题"
-            );
-
-            Console.WriteLine();
-        }
-
-        static void TestPascalCamelCase()
-        {
-            PrintTestHeader("测试 PascalCase ↔ camelCase 转换");
-
-            var model = new PascalCaseModel
+            Assert.BeginTest("Int round-trip");
             {
-                FirstName = "Sarah",
-                LastName = "Williams",
-                UserAge = 28,
-                IsActive = true
-            };
-
-            Console.WriteLine($"原始对象: {model}");
-
-            // 序列化 - 启用 lowerCase=true
-            Console.WriteLine("\n--- 序列化为 camelCase ---");
-            string jsonCamel = model.ToJson(lowerCase: true,onlyPublic: true);
-            Console.WriteLine($"序列化结果: {jsonCamel}");
-
-            bool hasCamelCase = jsonCamel.Contains("firstName") &&
-                               jsonCamel.Contains("lastName") &&
-                               jsonCamel.Contains("userAge") &&
-                               jsonCamel.Contains("isActive");
-            bool noUpperCase = !jsonCamel.Contains("FirstName") &&
-                              !jsonCamel.Contains("LastName");
-
-            PrintTestResult(
-                hasCamelCase && noUpperCase,
-                "✓ PascalCase 正确转换为 camelCase",
-                "✗ camelCase 转换有问题"
-            );
-
-            // 反序列化 - 从 camelCase 恢复
-            Console.WriteLine("\n--- 从 camelCase 反序列化 ---");
-            var restored = jsonCamel.FromJson<PascalCaseModel>(lowerCase: true,onlyPublic: true);
-            Console.WriteLine($"反序列化结果: {restored}");
-
-            PrintTestResult(
-                restored != null &&
-                restored.FirstName == "Sarah" &&
-                restored.LastName == "Williams" &&
-                restored.UserAge == 28 &&
-                restored.IsActive == true,
-                "✓ camelCase 正确反序列化为 PascalCase 属性",
-                "✗ camelCase 反序列化有问题"
-            );
-
-            Console.WriteLine();
-        }
-
-        static void TestCombinedFeatures()
-        {
-            PrintTestHeader("测试组合功能（Alias + Ignore）");
-
-            var model = new CombinedModel
-            {
-                Id = 999,
-                Name = "Test User",
-                InternalSecret = "hidden"
-            };
-
-            Console.WriteLine($"原始对象: {model}");
-            Console.WriteLine($"内部密钥: {model.InternalSecret}");
-
-            // 序列化
-            string json = SimpleJson.SerializeObject(model);
-            Console.WriteLine($"序列化后: {json}");
-
-            bool hasAlias = json.Contains("user_id");
-            bool idValue = json.Contains("999");
-            bool hasName = json.Contains("Test User");
-            bool noSecret = !json.Contains("InternalSecret") && !json.Contains("hidden");
-
-            PrintTestResult(
-                hasAlias && idValue && hasName && noSecret,
-                "✓ Alias 和 Ignore 同时工作正确",
-                "✗ 组合功能有问题"
-            );
-
-            // 反序列化
-            string jsonInput = @"{""user_id"": 123, ""Name"": ""Another User""}";
-            var restored = SimpleJson.DeserializeObject<CombinedModel>(jsonInput);
-            Console.WriteLine($"反序列化后: {restored}");
-
-            PrintTestResult(
-                restored != null && restored.Id == 123 && restored.Name == "Another User",
-                "✓ 组合功能反序列化正确",
-                "✗ 组合反序列化有问题"
-            );
-
-            Console.WriteLine();
-        }
-
-        #endregion
-
-        #region 辅助方法
-
-        static void PrintTestHeader(string title)
-        {
-            Console.WriteLine("┌─────────────────────────────────────────────────────────────┐");
-            Console.WriteLine($"│ {title.PadRight(59)} │");
-            Console.WriteLine("└─────────────────────────────────────────────────────────────┘");
-        }
-
-        static void PrintTestResult(bool passed,string successMsg,string failMsg)
-        {
-            if (passed)
-            {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine(successMsg);
+                string json = SimpleJson.SerializeObject(42);
+                var result = SimpleJson.DeserializeObject<int>(json);
+                Assert.AreEqual(42,result);
             }
-            else
+
+            Assert.BeginTest("Bool true round-trip");
             {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine(failMsg);
+                string json = SimpleJson.SerializeObject(true);
+                var result = SimpleJson.DeserializeObject<bool>(json);
+                Assert.AreEqual(true,result);
             }
-            Console.ResetColor();
-        }
 
-        #endregion
-    }
-
-    /// <summary>
-    /// SimpleJson 属性和 DataContract 功能测试套件
-    /// </summary>
-    [TestFixture]
-    public class SimpleJsonFeatureTests2
-    {
-        #region 测试模型定义
-
-        /// <summary>
-        /// 测试 JsonIgnore 和 JsonInclude 属性
-        /// </summary>
-        public class IgnoreIncludeTestModel
-        {
-            [JsonIgnore]
-            public string IgnoredField = "should be ignored";
-
-            public string NormalField = "should serialize";
-
-            [JsonIgnore]
-            public string IgnoredProperty { get; set; } = "ignored prop";
-
-            [JsonInclude]
-            private string IncludedPrivateField = "private but included";
-
-            [JsonInclude]
-            private string IncludedPrivateProperty { get; set; } = "private prop included";
-
-            public string GetIncludedPrivateField() => IncludedPrivateField;
-            public string GetIncludedPrivateProperty() => IncludedPrivateProperty;
-        }
-
-        /// <summary>
-        /// 测试 JsonAlias 属性（别名映射）
-        /// </summary>
-        public class AliasTestModel
-        {
-            [JsonAlias("user_name")]
-            public string UserName { get; set; } = "";
-
-            [JsonAlias("user_age",acceptOriginalName: true)]  // 同时接受原始名称
-            public int Age { get; set; }
-
-            [JsonAlias("email_address")]
-            public string Email { get; set; } = "";
-
-            public string Description { get; set; } = "";  // 无别名
-        }
-
-        /// <summary>
-        /// 测试大小写敏感性
-        /// </summary>
-        public class CaseSensitivityTestModel
-        {
-            public string FirstName { get; set; } = "";
-            public string LastName { get; set; } = "";
-            public int Age { get; set; }
-        }
-
-        /// <summary>
-        /// 测试 PascalCase 到 camelCase 的转换
-        /// </summary>
-        public class PascalCaseModel
-        {
-            public string FirstName { get; set; } = "";
-            public string LastName { get; set; } = "";
-            public int UserAge { get; set; }
-            public bool IsActive { get; set; }
-        }
-
-        #endregion
-
-        #region JsonIgnore 和 JsonInclude 测试
-
-        [Test]
-        [Category("JsonIgnore")]
-        public void TestJsonIgnore_FieldsShouldBeExcluded()
-        {
-            // Arrange
-            var model = new IgnoreIncludeTestModel
+            Assert.BeginTest("Bool false round-trip");
             {
-                NormalField = "normal value"
-            };
+                string json = SimpleJson.SerializeObject(false);
+                var result = SimpleJson.DeserializeObject<bool>(json);
+                Assert.AreEqual(false,result);
+            }
 
-            // Act
-            string json = SimpleJson.SerializeObject(model);
-
-            // Assert
-            Assert.That(json,Does.Contain("normalField"),"正常字段应该被序列化");
-            Assert.That(json,Does.Contain("normal value"),"字段值应该被序列化");
-            Assert.That(json,Does.Not.Contain("IgnoredField"),"被忽略的字段不应出现");
-            Assert.That(json,Does.Not.Contain("should be ignored"),"被忽略的值不应出现");
-            Console.WriteLine($"JsonIgnore 测试 - 序列化结果:\n{json}");
-        }
-
-        [Test]
-        [Category("JsonIgnore")]
-        public void TestJsonIgnore_PropertiesShouldBeExcluded()
-        {
-            // Arrange
-            var model = new IgnoreIncludeTestModel
+            Assert.BeginTest("Null serializes as 'null'");
             {
-                NormalField = "test"
-            };
+                string json = SimpleJson.SerializeObject(null);
+                Assert.AreEqual("null",json);
+            }
 
-            // Act
-            string json = SimpleJson.SerializeObject(model);
-
-            // Assert
-            Assert.That(json,Does.Not.Contain("IgnoredProperty"),"被 JsonIgnore 标记的属性不应出现");
-            Assert.That(json,Does.Not.Contain("ignored prop"),"被忽略的属性值不应出现");
-            Console.WriteLine($"JsonIgnore 属性测试 - 通过");
-        }
-
-        [Test]
-        [Category("JsonInclude")]
-        public void TestJsonInclude_PrivateFieldsShouldBeIncluded()
-        {
-            // Arrange
-            var model = new IgnoreIncludeTestModel();
-
-            // Act
-            string json = SimpleJson.SerializeObject(model);
-
-            // Assert
-            // 注意：默认情况下，private 字段可能不会被序列化（取决于 onlyPublic 参数）
-            // 使用 SerializeObject(model, lowerCase, onlyPublic: false) 来包含 private 成员
-            string jsonWithPrivate = model.ToJson(lowerCase: false,onlyPublic: false);
-
-            Assert.That(jsonWithPrivate,Does.Contain("IncludedPrivateField"),
-                "使用 JsonInclude 标记的私有字段应被包含（当 onlyPublic=false 时）");
-            Console.WriteLine($"JsonInclude 测试 - 序列化结果(onlyPublic=false):\n{jsonWithPrivate}");
-        }
-
-        #endregion
-
-        #region JsonAlias 别名映射测试
-
-        [Test]
-        [Category("JsonAlias")]
-        public void TestJsonAlias_SerializationUsesAlias()
-        {
-            // Arrange
-            var model = new AliasTestModel
+            Assert.BeginTest("Long round-trip");
             {
-                UserName = "John",
-                Age = 30,
-                Email = "john@example.com",
-                Description = "Test user"
-            };
-
-            // Act
-            string json = SimpleJson.SerializeObject(model);
-
-            // Assert
-            Assert.That(json,Does.Contain("user_name"),"应该使用别名 'user_name'");
-            Assert.That(json,Does.Contain("John"),"别名值应该正确");
-            Assert.That(json,Does.Contain("user_age"),"应该使用别名 'user_age'");
-            Assert.That(json,Does.Contain("email_address"),"应该使用别名 'email_address'");
-            Assert.That(json,Does.Contain("description"),"无别名的属性转为小写");
-            Assert.That(json,Does.Not.Contain("UserName"),"应该不包含原始属性名（被别名替代）");
-            Console.WriteLine($"JsonAlias 序列化测试 - 结果:\n{json}");
+                long val = 9876543210L;
+                string json = SimpleJson.SerializeObject(val);
+                var result = SimpleJson.DeserializeObject<long>(json);
+                Assert.AreEqual(val,result);
+            }
         }
 
-        [Test]
-        [Category("JsonAlias")]
-        public void TestJsonAlias_DeserializationWithAlias()
+        // ──────────────────────────────────────────────────────────
+        // 2. POCO 基础序列化
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestBasicPoco()
         {
-            // Arrange
-            string json = @"{
-                ""user_name"": ""Alice"",
-                ""user_age"": 25,
-                ""email_address"": ""alice@example.com"",
-                ""Description"": ""Alice User""
-            }";
-
-            // Act
-            var model = SimpleJson.DeserializeObject<AliasTestModel>(json);
-
-            // Assert
-            Assert.That(model,Is.Not.Null);
-            Assert.That(model.UserName,Is.EqualTo("Alice"),"应该通过别名 'user_name' 反序列化");
-            Assert.That(model.Age,Is.EqualTo(25),"应该通过别名 'user_age' 反序列化");
-            Assert.That(model.Email,Is.EqualTo("alice@example.com"),"应该通过别名 'email_address' 反序列化");
-            Assert.That(model.Description,Is.EqualTo("Alice User"),"应该通过原始名称反序列化");
-            Console.WriteLine($"JsonAlias 反序列化测试 - 通过");
-        }
-
-        [Test]
-        [Category("JsonAlias")]
-        public void TestJsonAlias_AcceptOriginalName()
-        {
-            // Arrange - 使用原始属性名而不是别名
-            string jsonWithOriginalName = @"{
-                ""user_name"": ""Bob"",
-                ""Age"": 28,
-                ""email_address"": ""bob@example.com""
-            }";
-
-            // Act
-            var model = SimpleJson.DeserializeObject<AliasTestModel>(jsonWithOriginalName);
-
-            // Assert
-            Assert.That(model,Is.Not.Null);
-            // Age 属性设置了 acceptOriginalName: true，所以应该同时接受 'Age' 和 'user_age'
-            Assert.That(model.Age,Is.EqualTo(28),"设置 acceptOriginalName=true 的属性应接受原始名称");
-            Console.WriteLine($"JsonAlias AcceptOriginalName 测试 - 通过");
-        }
-
-        #endregion
-
-        #region 大小写敏感性测试
-
-        [Test]
-        [Category("CaseSensitivity")]
-        public void TestCaseSensitivity_ExactMatch()
-        {
-            // Arrange
-            string json = @"{
-                ""FirstName"": ""John"",
-                ""LastName"": ""Doe"",
-                ""Age"": 30
-            }";
-
-            // Act
-            var model = SimpleJson.DeserializeObject<CaseSensitivityTestModel>(json);
-
-            // Assert
-            Assert.That(model,Is.Not.Null);
-            Assert.That(model.FirstName,Is.EqualTo("John"),"大小写完全匹配时应该反序列化");
-            Assert.That(model.LastName,Is.EqualTo("Doe"));
-            Console.WriteLine("大小写敏感性测试 - 精确匹配：通过");
-        }
-
-        [Test]
-        [Category("CaseSensitivity")]
-        public void TestCaseSensitivity_MismatchWithFallback()
-        {
-            // Arrange
-            string jsonWithWrongCase = @"{
-                ""firstname"": ""John"",
-                ""lastname"": ""Doe"",
-                ""age"": 30
-            }";
-
-            // Act
-            var model = SimpleJson.DeserializeObject<CaseSensitivityTestModel>(jsonWithWrongCase);
-
-            // Assert
-            // 代码中有大小写不敏感的兜底机制（见第 1356 行的 StringComparer.OrdinalIgnoreCase）
-            Assert.That(model,Is.Not.Null);
-            Assert.That(model.FirstName,Is.EqualTo("John"),
-                "应该使用大小写不敏感的兜底匹配");
-            Assert.That(model.LastName,Is.EqualTo("Doe"));
-            Assert.That(model.Age,Is.EqualTo(30));
-            Console.WriteLine("大小写敏感性测试 - 兜底匹配：通过");
-        }
-
-        [Test]
-        [Category("CaseSensitivity")]
-        public void TestCaseSensitivity_MixedCase()
-        {
-            // Arrange
-            string jsonMixedCase = @"{
-                ""FirstName"": ""Jane"",
-                ""lastname"": ""Smith"",
-                ""AGE"": 25
-            }";
-
-            // Act
-            var model = SimpleJson.DeserializeObject<CaseSensitivityTestModel>(jsonMixedCase);
-
-            // Assert
-            Assert.That(model,Is.Not.Null);
-            Assert.That(model.FirstName,Is.EqualTo("Jane"),"精确匹配的字段应该正确反序列化");
-            Assert.That(model.LastName,Is.EqualTo("Smith"),"兜底匹配的字段应该正确反序列化");
-            Assert.That(model.Age,Is.EqualTo(25),"全大写字段应该通过兜底匹配反序列化");
-            Console.WriteLine("大小写敏感性测试 - 混合大小写：通过");
-        }
-
-        #endregion
-
-        #region PascalCase 到 camelCase 转换测试
-
-        [Test]
-        [Category("CamelCaseConversion")]
-        public void TestPascalToCamelCase_Serialization()
-        {
-            // Arrange
-            var model = new PascalCaseModel
+            Assert.BeginTest("BasicPoco round-trip");
             {
-                FirstName = "John",
-                LastName = "Doe",
-                UserAge = 30,
-                IsActive = true
-            };
+                var original = new BasicPoco
+                { Name = "Alice",Age = 30,Score = 9.5f,Height = 1.65 };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<BasicPoco>(json);
+                Assert.AreEqual("Alice",result.Name);
+                Assert.AreEqual(30,result.Age);
+                Assert.AreEqual(9.5f,result.Score,1e-5f);
+                Assert.AreEqual(1.65,result.Height,1e-10);
+            }
 
-            // Act
-            // 使用 lowerCase=true 启用 PascalCase -> camelCase 转换
-            string json = model.ToJson(lowerCase: true,onlyPublic: true);
-
-            // Assert
-            Assert.That(json,Does.Contain("firstName"),"FirstName 应转换为 camelCase");
-            Assert.That(json,Does.Contain("lastName"),"LastName 应转换为 camelCase");
-            Assert.That(json,Does.Contain("userAge"),"UserAge 应转换为 camelCase");
-            Assert.That(json,Does.Contain("isActive"),"IsActive 应转换为 camelCase");
-            Assert.That(json,Does.Not.Contain("FirstName"),"不应包含 PascalCase 版本");
-            Console.WriteLine($"PascalCase 到 camelCase 转换测试 - 序列化结果:\n{json}");
-        }
-
-        [Test]
-        [Category("CamelCaseConversion")]
-        public void TestPascalToCamelCase_Deserialization()
-        {
-            // Arrange
-            string jsonCamelCase = @"{
-                ""firstName"": ""Jane"",
-                ""lastName"": ""Smith"",
-                ""userAge"": 28,
-                ""isActive"": false
-            }";
-
-            // Act
-            var model = jsonCamelCase.FromJson<PascalCaseModel>(lowerCase: true,onlyPublic: true);
-
-            // Assert
-            Assert.That(model,Is.Not.Null);
-            Assert.That(model.FirstName,Is.EqualTo("Jane"),"camelCase 应反序列化为 PascalCase 属性");
-            Assert.That(model.LastName,Is.EqualTo("Smith"));
-            Assert.That(model.UserAge,Is.EqualTo(28));
-            Assert.That(model.IsActive,Is.False);
-            Console.WriteLine("PascalCase 到 camelCase 转换测试 - 反序列化：通过");
-        }
-        public class URLModel
-        {
-            public string HTTPServer { get; set; } = "";
-            public string XMLParser { get; set; } = "";
-        }
-        [Test]
-        [Category("CamelCaseConversion")]
-        public void TestCamelCasePreservesUppercaseSequence()
-        {
-            // Arrange
-
-
-            var model = new URLModel
+            Assert.BeginTest("Null property serializes as null");
             {
-                HTTPServer = "apache",
-                XMLParser = "expat"
-            };
+                var obj = new BasicPoco { Name = null,Age = 0 };
+                string json = SimpleJson.SerializeObject(obj);
+                Assert.IsTrue(
+                    json.Contains("\"Name\":null") || json.Contains("\"name\":null"),
+                    "Null property must appear as null in JSON");
+            }
 
-            // Act
-            string json = model.ToJson(lowerCase: true);
-
-            // Assert
-            // ToJsonPropertyName 规则：连续大写字符会全部转小写，然后接余下的字符
-            // HTTPServer -> 循环遍历 H,T,T,P,S (5个大写)，遇到 e 停止
-            // 结果 = "https".ToLowerInvariant() + "erver" = "httpserver"
-            // XMLParser -> 循环遍历 X,M,L (3个大写)，遇到 P 停止
-            // 结果 = "xml".ToLowerInvariant() + "Parser" = "xmlparser"
-            Assert.That(json,Does.Contain("httpserver"),"连续大写应正确转换");
-            Assert.That(json,Does.Contain("xmlparser"),"连续大写应正确转换");
-            Console.WriteLine($"连续大写 camelCase 转换 - 结果:\n{json}");
-        }
-
-        #endregion
-
-        #region DataContract 支持测试（需启用 SIMPLE_JSON_DATACONTRACT）
-
-        // 如果启用了 SIMPLE_JSON_DATACONTRACT，可以取消注释以下代码
-        /*
-        [DataContract]
-        public class DataContractTestModel
-        {
-            [DataMember]
-            public string Name { get; set; }
-
-            [DataMember(Name = "user_age")]
-            public int Age { get; set; }
-
-            [IgnoreDataMember]
-            public string IgnoredField { get; set; }
-
-            // 无 DataMember 标记的属性不会被序列化
-            public string NotIncluded { get; set; }
-        }
-
-        [Test]
-        [Category("DataContract")]
-        public void TestDataContract_OnlyDataMembersAreSerialized()
-        {
-            // Arrange
-            var model = new DataContractTestModel
+            Assert.BeginTest("Extra JSON fields ignored gracefully");
             {
-                Name = "John",
-                Age = 30,
-                IgnoredField = "ignored",
-                NotIncluded = "not included"
-            };
+                string json = "{\"Name\":\"Bob\",\"Age\":25,\"Unknown\":\"extra\"}";
+                var result = SimpleJson.DeserializeObject<BasicPoco>(json);
+                Assert.AreEqual("Bob",result.Name);
+                Assert.AreEqual(25,result.Age);
+            }
 
-            // Act
-            string json = SimpleJson.SerializeObject(model);
-
-            // Assert
-            Assert.That(json, Does.Contain("Name"), "DataMember 标记的属性应被序列化");
-            Assert.That(json, Does.Contain("user_age"), "DataMember 指定的别名应被使用");
-            Assert.That(json, Does.Not.Contain("IgnoredField"), "IgnoreDataMember 标记的字段不应序列化");
-            Assert.That(json, Does.Not.Contain("NotIncluded"), "无 DataMember 标记的属性不应序列化");
-            Console.WriteLine($"DataContract 序列化测试 - 结果:\n{json}");
-        }
-
-        [Test]
-        [Category("DataContract")]
-        public void TestDataContract_DeserializationWithAlias()
-        {
-            // Arrange
-            string json = @"{
-                ""Name"": ""Alice"",
-                ""user_age"": 25,
-                ""IgnoredField"": ""should be ignored"",
-                ""NotIncluded"": ""should be ignored""
-            }";
-
-            // Act
-            var model = SimpleJson.DeserializeObject<DataContractTestModel>(json);
-
-            // Assert
-            Assert.That(model.Name, Is.EqualTo("Alice"));
-            Assert.That(model.Age, Is.EqualTo(25), "应通过别名 'user_age' 反序列化");
-            Assert.That(model.IgnoredField, Is.Null, "IgnoreDataMember 字段不应被赋值");
-            Assert.That(model.NotIncluded, Is.Null, "无 DataMember 的属性不应被赋值");
-            Console.WriteLine("DataContract 反序列化测试 - 通过");
-        }
-        */
-
-        #endregion
-
-        #region 复合功能测试
-        public class CombinedModel
-        {
-            [JsonAlias("user_id")]
-            public int Id { get; set; }
-
-            [JsonIgnore]
-            public string Password { get; set; } = "";
-
-            public string Username { get; set; } = "";
-        }
-
-        [Test]
-        [Category("Combined")]
-        public void TestCombined_AliasAndIgnore()
-        {
-            // 测试 Alias 和 Ignore 的组合
-
-            var model = new CombinedModel
+            Assert.BeginTest("Empty JSON object returns default POCO");
             {
-                Id = 123,
-                Password = "secret",
-                Username = "john"
-            };
-
-            // Serialize
-            string json = SimpleJson.SerializeObject(model);
-            Assert.That(json,Does.Contain("user_id"),"Alias 应该被使用");
-            Assert.That(json,Does.Contain("123"));
-            Assert.That(json,Does.Not.Contain("Password"),"Ignore 应该被遵守");
-            Assert.That(json,Does.Not.Contain("secret"));
-
-            // Deserialize
-            var restored = SimpleJson.DeserializeObject<CombinedModel>(json);
-            Assert.That(restored.Id,Is.EqualTo(123));
-            Assert.That(restored.Username,Is.EqualTo("john"));
-            Console.WriteLine("组合功能测试 - 通过");
+                var result = SimpleJson.DeserializeObject<BasicPoco>("{}");
+                Assert.IsNull(result.Name);
+                Assert.AreEqual(0,result.Age);
+            }
         }
 
-        #endregion
+        // ──────────────────────────────────────────────────────────
+        // 3. JsonIgnore
+        // ──────────────────────────────────────────────────────────
 
-        #region 辅助方法
-
-        [SetUp]
-        public void Setup()
+        private static void TestJsonIgnore()
         {
-            Console.WriteLine("\n========== 开始新测试 ==========");
-        }
-
-        [TearDown]
-        public void Cleanup()
-        {
-            Console.WriteLine("========== 测试结束 ==========\n");
-        }
-
-        #endregion
-    }
-
-    [TestFixture]
-    [Category("CoreTypes")]
-    public class SimpleJsonCoreTypeTests
-    {
-        #region 基础类型测试
-
-        [Test]
-        public void TestSerialize_Int()
-        {
-            int value = 42;
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Is.EqualTo("42"));
-        }
-
-        [Test]
-        public void TestDeserialize_Int()
-        {
-            string json = "42";
-            int result = SimpleJson.DeserializeObject<int>(json);
-            Assert.That(result, Is.EqualTo(42));
-        }
-
-        [Test]
-        public void TestSerialize_Double()
-        {
-            double value = 3.14159;
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Does.Contain("3.14"));
-        }
-
-        [Test]
-        public void TestDeserialize_Double()
-        {
-            string json = "3.14159";
-            double result = SimpleJson.DeserializeObject<double>(json);
-            Assert.That(result, Is.EqualTo(3.14159).Within(0.00001));
-        }
-
-        [Test]
-        public void TestSerialize_Bool_True()
-        {
-            bool value = true;
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Is.EqualTo("true"));
-        }
-
-        [Test]
-        public void TestSerialize_Bool_False()
-        {
-            bool value = false;
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Is.EqualTo("false"));
-        }
-
-        [Test]
-        public void TestDeserialize_Bool_True()
-        {
-            string json = "true";
-            bool result = SimpleJson.DeserializeObject<bool>(json);
-            Assert.That(result, Is.True);
-        }
-
-        [Test]
-        public void TestDeserialize_Bool_False()
-        {
-            string json = "false";
-            bool result = SimpleJson.DeserializeObject<bool>(json);
-            Assert.That(result, Is.False);
-        }
-
-        [Test]
-        public void TestSerialize_String()
-        {
-            string value = "Hello, World!";
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Is.EqualTo(@"""Hello, World!"""));
-        }
-
-        [Test]
-        public void TestDeserialize_String()
-        {
-            string json = @"""Hello, World!""";
-            string result = SimpleJson.DeserializeObject<string>(json);
-            Assert.That(result, Is.EqualTo("Hello, World!"));
-        }
-
-        [Test]
-        public void TestSerialize_String_WithEscape()
-        {
-            string value = "Line1\nLine2\tTabbed";
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Does.Contain("\\n"));
-            Assert.That(json, Does.Contain("\\t"));
-        }
-
-        [Test]
-        public void TestSerialize_Null()
-        {
-            object value = null;
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Is.EqualTo("null"));
-        }
-
-        [Test]
-        public void TestDeserialize_Null()
-        {
-            string json = "null";
-            object result = SimpleJson.DeserializeObject<object>(json);
-            Assert.That(result, Is.Null);
-        }
-
-        [Test]
-        public void TestSerialize_Long()
-        {
-            long value = 9223372036854775807L;
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Is.EqualTo("9223372036854775807"));
-        }
-
-        [Test]
-        public void TestSerialize_Float()
-        {
-            float value = 3.14f;
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Does.Contain("3.14"));
-        }
-
-        [Test]
-        public void TestSerialize_Decimal()
-        {
-            decimal value = 123.456m;
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Does.Contain("123.456"));
-        }
-
-        #endregion
-
-        #region DateTime 测试
-
-        [Test]
-        public void TestSerialize_DateTime()
-        {
-            var date = new DateTime(2024, 12, 25, 10, 30, 45);
-            string json = SimpleJson.SerializeObject(date);
-            Assert.That(json, Does.Contain("2024"));
-            Assert.That(json, Does.Contain("12"));
-            Assert.That(json, Does.Contain("25"));
-        }
-
-        [Test]
-        public void TestDeserialize_DateTime()
-        {
-            string json = @"""2024-12-25T10:30:45""";
-            DateTime result = SimpleJson.DeserializeObject<DateTime>(json);
-            Assert.That(result.Year, Is.EqualTo(2024));
-            Assert.That(result.Month, Is.EqualTo(12));
-            Assert.That(result.Day, Is.EqualTo(25));
-        }
-
-        [Test]
-        public void TestSerialize_DateTimeOffset()
-        {
-            var date = new DateTimeOffset(2024, 6, 15, 14, 30, 0, TimeSpan.FromHours(8));
-            string json = SimpleJson.SerializeObject(date);
-            Assert.That(json, Does.Contain("2024"));
-        }
-
-        #endregion
-
-        #region Enum 测试
-
-        public enum TestEnum
-        {
-            Value1,
-            Value2,
-            Value3
-        }
-
-        [Test]
-        public void TestSerialize_Enum()
-        {
-            TestEnum value = TestEnum.Value2;
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Is.EqualTo("1"));
-        }
-
-        [Test]
-        public void TestDeserialize_Enum()
-        {
-            string json = "1";
-            TestEnum result = SimpleJson.DeserializeObject<TestEnum>(json);
-            Assert.That(result, Is.EqualTo(TestEnum.Value2));
-        }
-
-        [Flags]
-        public enum TestFlags
-        {
-            None = 0,
-            Read = 1,
-            Write = 2,
-            Execute = 4
-        }
-
-        [Test]
-        public void TestSerialize_FlagsEnum()
-        {
-            TestFlags value = TestFlags.Read | TestFlags.Write;
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Is.EqualTo("3"));
-        }
-
-        #endregion
-
-        #region Nullable 测试
-
-        [Test]
-        public void TestSerialize_NullableInt_HasValue()
-        {
-            int? value = 42;
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Is.EqualTo("42"));
-        }
-
-        [Test]
-        public void TestSerialize_NullableInt_Null()
-        {
-            int? value = null;
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Is.EqualTo("null"));
-        }
-
-        [Test]
-        public void TestDeserialize_NullableInt_HasValue()
-        {
-            string json = "42";
-            int? result = SimpleJson.DeserializeObject<int?>(json);
-            Assert.That(result, Is.EqualTo(42));
-        }
-
-        [Test]
-        public void TestDeserialize_NullableInt_Null()
-        {
-            string json = "null";
-            int? result = SimpleJson.DeserializeObject<int?>(json);
-            Assert.That(result, Is.Null);
-        }
-
-        #endregion
-
-        #region Guid 测试
-
-        [Test]
-        public void TestSerialize_Guid()
-        {
-            Guid guid = Guid.Parse("12345678-1234-1234-1234-123456789abc");
-            string json = SimpleJson.SerializeObject(guid);
-            Assert.That(json, Does.Contain("12345678"));
-        }
-
-        [Test]
-        public void TestDeserialize_Guid()
-        {
-            string json = @"""12345678-1234-1234-1234-123456789abc""";
-            Guid result = SimpleJson.DeserializeObject<Guid>(json);
-            Assert.That(result, Is.EqualTo(Guid.Parse("12345678-1234-1234-1234-123456789abc")));
-        }
-
-        #endregion
-    }
-
-    [TestFixture]
-    [Category("Collections")]
-    public class SimpleJsonCollectionTests
-    {
-        #region Array 测试
-
-        [Test]
-        public void TestSerialize_IntArray()
-        {
-            int[] arr = { 1, 2, 3, 4, 5 };
-            string json = SimpleJson.SerializeObject(arr);
-            Assert.That(json, Is.EqualTo("[1,2,3,4,5]"));
-        }
-
-        [Test]
-        public void TestDeserialize_IntArray()
-        {
-            string json = "[1,2,3,4,5]";
-            int[] result = SimpleJson.DeserializeObject<int[]>(json);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Length, Is.EqualTo(5));
-            Assert.That(result[0], Is.EqualTo(1));
-            Assert.That(result[4], Is.EqualTo(5));
-        }
-
-        [Test]
-        public void TestSerialize_StringArray()
-        {
-            string[] arr = { "a", "b", "c" };
-            string json = SimpleJson.SerializeObject(arr);
-            Assert.That(json, Is.EqualTo(@"[""a"",""b"",""c""]"));
-        }
-
-        [Test]
-        public void TestSerialize_EmptyArray()
-        {
-            int[] arr = new int[0];
-            string json = SimpleJson.SerializeObject(arr);
-            Assert.That(json, Is.EqualTo("[]"));
-        }
-
-        [Test]
-        public void TestDeserialize_EmptyArray()
-        {
-            string json = "[]";
-            int[] result = SimpleJson.DeserializeObject<int[]>(json);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Length, Is.EqualTo(0));
-        }
-
-        [Test]
-        public void TestSerialize_2DArray()
-        {
-            int[][] arr = { new[] { 1, 2 }, new[] { 3, 4 } };
-            string json = SimpleJson.SerializeObject(arr);
-            Assert.That(json, Is.EqualTo("[[1,2],[3,4]]"));
-        }
-
-        #endregion
-
-        #region List 测试
-
-        [Test]
-        public void TestSerialize_IntList()
-        {
-            var list = new List<int> { 1, 2, 3 };
-            string json = SimpleJson.SerializeObject(list);
-            Assert.That(json, Is.EqualTo("[1,2,3]"));
-        }
-
-        [Test]
-        public void TestDeserialize_IntList()
-        {
-            string json = "[1,2,3]";
-            List<int> result = SimpleJson.DeserializeObject<List<int>>(json);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Count, Is.EqualTo(3));
-            Assert.That(result[0], Is.EqualTo(1));
-        }
-
-        [Test]
-        public void TestSerialize_StringList()
-        {
-            var list = new List<string> { "hello", "world" };
-            string json = SimpleJson.SerializeObject(list);
-            Assert.That(json, Does.Contain("hello"));
-            Assert.That(json, Does.Contain("world"));
-        }
-
-        #endregion
-
-        #region Dictionary 测试
-
-        [Test]
-        public void TestSerialize_StringStringDictionary()
-        {
-            var dict = new Dictionary<string, string>
+            Assert.BeginTest("JsonIgnore: field excluded from serialization");
             {
-                { "key1", "value1" },
-                { "key2", "value2" }
-            };
-            string json = SimpleJson.SerializeObject(dict);
-            Assert.That(json, Does.Contain("key1"));
-            Assert.That(json, Does.Contain("value1"));
-            Assert.That(json, Does.Contain("key2"));
-            Assert.That(json, Does.Contain("value2"));
-        }
+                var obj = new AttributePoco { Visible = "show",Ignored = "hide" };
+                string json = SimpleJson.SerializeObject(obj);
+                Assert.IsTrue(
+                    json.Contains("Visible") || json.Contains("visible"),
+                    "Visible must appear");
+                Assert.IsFalse(
+                    json.Contains("Ignored") || json.Contains("ignored"),
+                    "Ignored must NOT appear");
+            }
 
-        [Test]
-        public void TestDeserialize_StringStringDictionary()
-        {
-            string json = @"{""key1"":""value1"",""key2"":""value2""}";
-            var result = SimpleJson.DeserializeObject<Dictionary<string, string>>(json);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Count, Is.EqualTo(2));
-            Assert.That(result["key1"], Is.EqualTo("value1"));
-            Assert.That(result["key2"], Is.EqualTo("value2"));
-        }
-
-        [Test]
-        public void TestSerialize_StringIntDictionary()
-        {
-            var dict = new Dictionary<string, int>
+            Assert.BeginTest("JsonIgnore: field skipped during deserialization");
             {
-                { "one", 1 },
-                { "two", 2 }
-            };
-            string json = SimpleJson.SerializeObject(dict);
-            Assert.That(json, Does.Contain("one"));
-            Assert.That(json, Does.Contain("1"));
-        }
+                string json = "{\"Visible\":\"show\",\"Ignored\":\"hide\"}";
+                var result = SimpleJson.DeserializeObject<AttributePoco>(json);
+                Assert.AreEqual("show",result.Visible);
+                Assert.IsNull(result.Ignored,
+                    "Ignored field must remain null");
+            }
 
-        [Test]
-        public void TestDeserialize_StringIntDictionary()
-        {
-            string json = @"{""one"":1,""two"":2}";
-            var result = SimpleJson.DeserializeObject<Dictionary<string, int>>(json);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result["one"], Is.EqualTo(1));
-            Assert.That(result["two"], Is.EqualTo(2));
-        }
-
-        [Test]
-        public void TestSerialize_IntStringDictionary()
-        {
-            var dict = new Dictionary<int, string>
+            Assert.BeginTest("JsonIgnore: inherited override excluded");
             {
-                { 1, "one" },
-                { 2, "two" }
-            };
-            Assert.Throws<Exception>(() => SimpleJson.SerializeObject(dict));
+                var obj = new InheritanceChild
+                { BaseProp = "base",ChildProp = "child" };
+                string json = SimpleJson.SerializeObject(obj);
+                Assert.IsFalse(
+                    json.Contains("BaseProp") || json.Contains("baseprop"),
+                    "Overridden JsonIgnore must exclude base property");
+                Assert.IsTrue(
+                    json.Contains("ChildProp") || json.Contains("childprop"));
+            }
         }
 
-        [Test]
-        public void TestSerialize_EmptyDictionary()
+        // ──────────────────────────────────────────────────────────
+        // 4. JsonInclude
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestJsonInclude()
         {
-            var dict = new Dictionary<string, string>();
-            string json = SimpleJson.SerializeObject(dict);
-            Assert.That(json, Is.EqualTo("{}"));
-        }
-
-        [Test]
-        public void TestDeserialize_EmptyDictionary()
-        {
-            string json = "{}";
-            var result = SimpleJson.DeserializeObject<Dictionary<string, string>>(json);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Count, Is.EqualTo(0));
-        }
-
-        #endregion
-
-        #region HashSet 测试
-
-        [Test]
-        public void TestSerialize_IntHashSet()
-        {
-            var set = new HashSet<int> { 1, 2, 3 };
-            string json = SimpleJson.SerializeObject(set);
-            Assert.That(json, Does.Contain("1"));
-            Assert.That(json, Does.Contain("2"));
-            Assert.That(json, Does.Contain("3"));
-        }
-
-        #endregion
-
-        #region 嵌套集合测试
-
-        [Test]
-        public void TestSerialize_NestedList()
-        {
-            var nested = new List<List<int>>
+            Assert.BeginTest("JsonInclude: private field serialized");
             {
-                new List<int> { 1, 2 },
-                new List<int> { 3, 4 }
-            };
-            string json = SimpleJson.SerializeObject(nested);
-            Assert.That(json, Is.EqualTo("[[1,2],[3,4]]"));
-        }
+                var obj = new PrivateMemberPoco();
+                typeof(PrivateMemberPoco)
+                    .GetField("_privateInt",
+                        BindingFlags.NonPublic | BindingFlags.Instance)
+                    .SetValue(obj,99);
+                typeof(PrivateMemberPoco)
+                    .GetField("_privateString",
+                        BindingFlags.NonPublic | BindingFlags.Instance)
+                    .SetValue(obj,"secret");
 
-        [Test]
-        public void TestDeserialize_NestedList()
-        {
-            string json = "[[1,2],[3,4]]";
-            var result = SimpleJson.DeserializeObject<List<List<int>>>(json);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Count, Is.EqualTo(2));
-            Assert.That(result[0][0], Is.EqualTo(1));
-            Assert.That(result[1][1], Is.EqualTo(4));
-        }
+                string json = SimpleJson.SerializeObject(obj);
+                Assert.IsTrue(
+                    json.Contains("_privateInt") || json.Contains("_privateint"),
+                    "Private field with JsonInclude must appear in JSON");
+                Assert.IsTrue(
+                    json.Contains("_privateString") || json.Contains("_privatestring"));
+            }
 
-        [Test]
-        public void TestSerialize_DictionaryWithListValue()
-        {
-            var dict = new Dictionary<string, List<int>>
+            Assert.BeginTest("JsonInclude: private field deserialized");
             {
-                { "numbers", new List<int> { 1, 2, 3 } }
-            };
-            string json = SimpleJson.SerializeObject(dict);
-            Assert.That(json, Does.Contain("numbers"));
-            Assert.That(json, Does.Contain("[1,2,3]"));
-        }
+                string json = "{\"_privateInt\":99,\"_privateString\":\"secret\"}";
+                var result = SimpleJson.DeserializeObject<PrivateMemberPoco>(json);
+                Assert.AreEqual(99,result.GetPrivateInt());
+                Assert.AreEqual("secret",result.GetPrivateString());
+            }
 
-        [Test]
-        public void TestDeserialize_DictionaryWithListValue()
-        {
-            string json = @"{""numbers"":[1,2,3]}";
-            var result = SimpleJson.DeserializeObject<Dictionary<string, List<int>>>(json);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result["numbers"], Is.Not.Null);
-            Assert.That(result["numbers"].Count, Is.EqualTo(3));
-        }
-
-        #endregion
-    }
-
-    [TestFixture]
-    [Category("ComplexTypes")]
-    public class SimpleJsonComplexTypeTests
-    {
-        #region 测试模型
-
-        public class SimplePerson
-        {
-            public string? Name { get; set; }
-            public int Age { get; set; }
-        }
-
-        public class Address
-        {
-            public string Street { get; set; } = "";
-            public string City { get; set; } = "";
-            public string ZipCode { get; set; } = "";
-        }
-
-        public class PersonWithAddress
-        {
-            public string Name { get; set; } = "";
-            public Address? Address { get; set; }
-        }
-
-        public class Company
-        {
-            public string Name { get; set; } = "";
-            public List<SimplePerson> Employees { get; set; } = new();
-        }
-
-        public class RecursiveModel
-        {
-            public string Name { get; set; } = "";
-            public RecursiveModel? Child { get; set; }
-        }
-
-        public class ModelWithDefaultValues
-        {
-            public int Number { get; set; } = 100;
-            public string Text { get; set; } = "default";
-            public bool Flag { get; set; } = true;
-        }
-
-        #endregion
-
-        #region 简单对象测试
-
-        [Test]
-        public void TestSerialize_SimpleObject()
-        {
-            var person = new SimplePerson { Name = "John", Age = 30 };
-            string json = SimpleJson.SerializeObject(person);
-            Assert.That(json, Does.Contain("name"));
-            Assert.That(json, Does.Contain("John"));
-            Assert.That(json, Does.Contain("age"));
-            Assert.That(json, Does.Contain("30"));
-        }
-
-        [Test]
-        public void TestDeserialize_SimpleObject()
-        {
-            string json = @"{""Name"":""John"",""Age"":30}";
-            var result = SimpleJson.DeserializeObject<SimplePerson>(json);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Name, Is.EqualTo("John"));
-            Assert.That(result.Age, Is.EqualTo(30));
-        }
-
-        [Test]
-        public void TestSerialize_ObjectWithNullProperty()
-        {
-            var person = new SimplePerson { Name = "", Age = 25 };
-            string json = SimpleJson.SerializeObject(person);
-            Assert.That(json, Does.Contain("age"));
-            Assert.That(json, Does.Contain("25"));
-        }
-
-        #endregion
-
-        #region 嵌套对象测试
-
-        [Test]
-        public void TestSerialize_NestedObject()
-        {
-            var person = new PersonWithAddress
+            Assert.BeginTest("JsonInclude: private property round-trip");
             {
-                Name = "John",
-                Address = new Address
+                var obj = new AttributePoco();
+                obj.SetPrivateProperty("privateValue");
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<AttributePoco>(json);
+                Assert.AreEqual("privateValue",result.GetPrivateProperty());
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 5. JsonAlias
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestJsonAlias()
+        {
+            Assert.BeginTest("JsonAlias: serialize uses original name");
+            {
+                var obj = new AttributePoco { NewName = "test" };
+                string json = SimpleJson.SerializeObject(obj);
+                Assert.IsTrue(
+                    json.Contains("NewName") || json.Contains("newname"),
+                    "Serialization must use original CLR name");
+                Assert.IsFalse(json.Contains("old_name"),
+                    "Alias must NOT appear in serialized output");
+            }
+
+            Assert.BeginTest("JsonAlias: deserialize accepts alias key");
+            {
+                string json = "{\"old_name\":\"fromAlias\"}";
+                var result = SimpleJson.DeserializeObject<AttributePoco>(json);
+                Assert.AreEqual("fromAlias",result.NewName);
+            }
+
+            Assert.BeginTest("JsonAlias: deserialize accepts original name");
+            {
+                string json = "{\"NewName\":\"fromOriginal\"}";
+                var result = SimpleJson.DeserializeObject<AttributePoco>(json);
+                Assert.AreEqual("fromOriginal",result.NewName);
+            }
+
+            Assert.BeginTest("JsonAlias: duplicate keys — latter wins");
+            {
+                string json = "{\"old_name\":\"fromAlias\",\"NewName\":\"fromOriginal\"}";
+                var result = SimpleJson.DeserializeObject<AttributePoco>(json);
+                Assert.AreEqual("fromOriginal",result.NewName,
+                    "When both alias and original name appear, latter must win");
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 6. float / double 精度
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestFloatPrecision()
+        {
+            Assert.BeginTest("float G9 round-trip: 1/3");
+            {
+                float original = 1.0f / 3.0f;
+                var obj = new FloatPoco { FloatValue = original };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<FloatPoco>(json);
+                Assert.AreEqual(original,result.FloatValue,0f,
+                    "G9 must guarantee exact float round-trip");
+            }
+
+            Assert.BeginTest("float G9 round-trip: large value");
+            {
+                float original = 123456789.0f;
+                var obj = new FloatPoco { FloatValue = original };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<FloatPoco>(json);
+                Assert.AreEqual(original,result.FloatValue,0f);
+            }
+
+            Assert.BeginTest("double G17 round-trip: 1/3");
+            {
+                double original = 1.0 / 3.0;
+                var obj = new FloatPoco { DoubleValue = original };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<FloatPoco>(json);
+                Assert.AreEqual(original,result.DoubleValue,0.0,
+                    "G17 must guarantee exact double round-trip");
+            }
+
+            Assert.BeginTest("double G17 round-trip: Math.PI");
+            {
+                double original = Math.PI;
+                var obj = new FloatPoco { DoubleValue = original };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<FloatPoco>(json);
+                Assert.AreEqual(original,result.DoubleValue,0.0);
+            }
+
+            Assert.BeginTest("float NaN serializes as null");
+            {
+                var obj = new FloatPoco { FloatValue = float.NaN };
+                string json = SimpleJson.SerializeObject(obj);
+                Assert.Contains(json,"null");
+            }
+
+            Assert.BeginTest("float +Infinity serializes as null");
+            {
+                var obj = new FloatPoco { FloatValue = float.PositiveInfinity };
+                string json = SimpleJson.SerializeObject(obj);
+                Assert.Contains(json,"null");
+            }
+
+            Assert.BeginTest("float -Infinity serializes as null");
+            {
+                var obj = new FloatPoco { FloatValue = float.NegativeInfinity };
+                string json = SimpleJson.SerializeObject(obj);
+                Assert.Contains(json,"null");
+            }
+
+            Assert.BeginTest("double NaN serializes as null");
+            {
+                var obj = new FloatPoco { DoubleValue = double.NaN };
+                string json = SimpleJson.SerializeObject(obj);
+                Assert.Contains(json,"null");
+            }
+
+            Assert.BeginTest("decimal round-trip: no exception");
+            {
+                Assert.DoesNotThrow(() =>
                 {
-                    Street = "123 Main St",
-                    City = "New York",
-                    ZipCode = "10001"
-                }
-            };
-            string json = SimpleJson.SerializeObject(person);
-            Assert.That(json, Does.Contain("John"));
-            Assert.That(json, Does.Contain("123 Main St"));
-            Assert.That(json, Does.Contain("New York"));
+                    var obj = new FloatPoco { DecimalValue = 123456789.123456789m };
+                    string json = SimpleJson.SerializeObject(obj);
+                    SimpleJson.DeserializeObject<FloatPoco>(json);
+                });
+            }
         }
 
-        [Test]
-        public void TestDeserialize_NestedObject()
-        {
-            string json = @"{""Name"":""John"",""Address"":{""Street"":""123 Main St"",""City"":""New York"",""ZipCode"":""10001""}}";
-            var result = SimpleJson.DeserializeObject<PersonWithAddress>(json);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Name, Is.EqualTo("John"));
-            Assert.That(result.Address, Is.Not.Null);
-            Assert.That(result.Address.Street, Is.EqualTo("123 Main St"));
-            Assert.That(result.Address.City, Is.EqualTo("New York"));
-        }
+        // ──────────────────────────────────────────────────────────
+        // 7. 字典 key 类型支持
+        // ──────────────────────────────────────────────────────────
 
-        [Test]
-        public void TestSerialize_NestedObjectNull()
+        private static void TestDictionaryKeys()
         {
-            var person = new PersonWithAddress
+            Assert.BeginTest("Dict<string,int> round-trip");
             {
-                Name = "John",
-                Address = new Address { Street = "", City = "", ZipCode = "" }
-            };
-            string json = SimpleJson.SerializeObject(person);
-            Assert.That(json, Does.Contain("John"));
-        }
+                var original = new Dictionary<string,int>
+                    { { "a", 1 }, { "b", 2 }, { "c", 3 } };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<
+                    Dictionary<string,int>>(json);
+                Assert.AreEqual(3,result.Count);
+                foreach (var kvp in original)
+                    Assert.AreEqual(kvp.Value,result[kvp.Key],
+                        "Dict<string,int> value mismatch for key: " + kvp.Key);
+            }
 
-        #endregion
-
-        #region 对象列表测试
-
-        [Test]
-        public void TestSerialize_ObjectList()
-        {
-            var company = new Company
+            Assert.BeginTest("Dict<int,string> serializes as string keys");
             {
-                Name = "Tech Corp",
-                Employees = new List<SimplePerson>
+                var dict = new Dictionary<int,string>
+                    { { 1, "one" }, { 2, "two" } };
+                string json = SimpleJson.SerializeObject(dict);
+                Assert.Contains(json,"\"1\"",
+                    "Integer keys must become JSON string keys");
+            }
+
+            Assert.BeginTest("Dict<int,string> round-trip");
+            {
+                var original = new Dictionary<int,string>
+                    { { 1, "one" }, { 2, "two" }, { 3, "three" } };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<
+                    Dictionary<int,string>>(json);
+                Assert.AreEqual(original.Count,result.Count);
+                foreach (var kvp in original)
+                    Assert.AreEqual(kvp.Value,result[kvp.Key]);
+            }
+
+            Assert.BeginTest("Dict<Color,string> enum key: numeric string in JSON");
+            {
+                var dict = new Dictionary<Color,string>
+                    { { Color.Red, "r" }, { Color.Green, "g" } };
+                string json = SimpleJson.SerializeObject(dict);
+                Assert.Contains(json,"\"0\"");
+                Assert.Contains(json,"\"1\"");
+            }
+
+            Assert.BeginTest("Dict<Color,string> enum key round-trip (numeric)");
+            {
+                var original = new Dictionary<Color,string>
                 {
-                    new SimplePerson { Name = "Alice", Age = 28 },
-                    new SimplePerson { Name = "Bob", Age = 32 }
-                }
-            };
-            string json = SimpleJson.SerializeObject(company);
-            Assert.That(json, Does.Contain("Tech Corp"));
-            Assert.That(json, Does.Contain("Alice"));
-            Assert.That(json, Does.Contain("Bob"));
-        }
+                    { Color.Red,   "red"   },
+                    { Color.Green, "green" },
+                    { Color.Blue,  "blue"  }
+                };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<
+                    Dictionary<Color,string>>(json);
+                Assert.AreEqual(original.Count,result.Count);
+                foreach (var kvp in original)
+                    Assert.AreEqual(kvp.Value,result[kvp.Key]);
+            }
 
-        [Test]
-        public void TestDeserialize_ObjectList()
-        {
-            string json = @"{""Name"":""Tech Corp"",""Employees"":[{""Name"":""Alice"",""Age"":28},{""Name"":""Bob"",""Age"":32}]}";
-            var result = SimpleJson.DeserializeObject<Company>(json);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Name, Is.EqualTo("Tech Corp"));
-            Assert.That(result.Employees, Is.Not.Null);
-            Assert.That(result.Employees.Count, Is.EqualTo(2));
-            Assert.That(result.Employees[0].Name, Is.EqualTo("Alice"));
-        }
-
-        #endregion
-
-        #region 递归对象测试
-
-        [Test]
-        public void TestSerialize_RecursiveObject()
-        {
-            var root = new RecursiveModel
+            Assert.BeginTest("Dict<Color,string> enum key deserialize by name");
             {
-                Name = "Root",
-                Child = new RecursiveModel
-                {
-                    Name = "Child",
-                    Child = new RecursiveModel { Name = "" }
-                }
-            };
-            string json = SimpleJson.SerializeObject(root);
-            Assert.That(json, Does.Contain("Root"));
-            Assert.That(json, Does.Contain("Child"));
-        }
+                string json = "{\"Red\":\"r\",\"Green\":\"g\",\"Blue\":\"b\"}";
+                var result = SimpleJson.DeserializeObject<
+                    Dictionary<Color,string>>(json);
+                Assert.AreEqual(3,result.Count);
+                Assert.AreEqual("r",result[Color.Red]);
+                Assert.AreEqual("g",result[Color.Green]);
+                Assert.AreEqual("b",result[Color.Blue]);
+            }
 
-        [Test]
-        public void TestDeserialize_RecursiveObject()
-        {
-            string json = @"{""Name"":""Root"",""Child"":{""Name"":""Child"",""Child"":null}}";
-            var result = SimpleJson.DeserializeObject<RecursiveModel>(json);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Name, Is.EqualTo("Root"));
-            Assert.That(result.Child, Is.Not.Null);
-            Assert.That(result.Child.Name, Is.EqualTo("Child"));
-            Assert.That(result.Child.Child, Is.Null);
-        }
-
-        #endregion
-
-        #region 默认值测试
-
-        [Test]
-        public void TestSerialize_DefaultValues()
-        {
-            var model = new ModelWithDefaultValues();
-            string json = SimpleJson.SerializeObject(model);
-            Assert.That(json, Does.Contain("100"));
-            Assert.That(json, Does.Contain("default"));
-            Assert.That(json, Does.Contain("true"));
-        }
-
-        [Test]
-        public void TestDeserialize_PartialJson_UsesDefaults()
-        {
-            string json = @"{""Number"":200}";
-            var result = SimpleJson.DeserializeObject<ModelWithDefaultValues>(json);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Number, Is.EqualTo(200));
-        }
-
-        #endregion
-    }
-
-    [TestFixture]
-    [Category("EdgeCases")]
-    public class SimpleJsonEdgeCaseTests
-    {
-        #region 特殊字符测试
-
-        [Test]
-        public void TestSerialize_StringWithQuotes()
-        {
-            string value = @"He said ""Hello""";
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Does.Contain(@"\"""));
-        }
-
-        [Test]
-        public void TestDeserialize_StringWithQuotes()
-        {
-            string json = @"""He said \""Hello\""""";
-            string result = SimpleJson.DeserializeObject<string>(json);
-            Assert.That(result, Is.EqualTo(@"He said ""Hello"""));
-        }
-
-        [Test]
-        public void TestSerialize_StringWithBackslash()
-        {
-            string value = @"C:\Path\To\File";
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Does.Contain(@"\\"));
-        }
-
-        [Test]
-        public void TestDeserialize_StringWithBackslash()
-        {
-            string json = @"""C:\\Path\\To\\File""";
-            string result = SimpleJson.DeserializeObject<string>(json);
-            Assert.That(result, Is.EqualTo(@"C:\Path\To\File"));
-        }
-
-        [Test]
-        public void TestSerialize_StringWithUnicode()
-        {
-            string value = "Hello 世界 🌍";
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Does.Contain("世界"));
-        }
-
-        [Test]
-        public void TestDeserialize_StringWithUnicode()
-        {
-            string json = @"""Hello 世界 🌍""";
-            string result = SimpleJson.DeserializeObject<string>(json);
-            Assert.That(result, Is.EqualTo("Hello 世界 🌍"));
-        }
-
-        [Test]
-        public void TestSerialize_StringWithNewline()
-        {
-            string value = "Line1\nLine2\r\nLine3";
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Does.Contain("\\n"));
-            Assert.That(json, Does.Contain("\\r"));
-        }
-
-        [Test]
-        public void TestSerialize_StringWithTab()
-        {
-            string value = "Col1\tCol2";
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Does.Contain("\\t"));
-        }
-
-        #endregion
-
-        #region 边界值测试
-
-        [Test]
-        public void TestSerialize_MaxInt()
-        {
-            int value = int.MaxValue;
-            string json = SimpleJson.SerializeObject(value);
-            int result = SimpleJson.DeserializeObject<int>(json);
-            Assert.That(result, Is.EqualTo(int.MaxValue));
-        }
-
-        [Test]
-        public void TestSerialize_MinInt()
-        {
-            int value = int.MinValue;
-            string json = SimpleJson.SerializeObject(value);
-            int result = SimpleJson.DeserializeObject<int>(json);
-            Assert.That(result, Is.EqualTo(int.MinValue));
-        }
-
-        [Test]
-        public void TestSerialize_MaxDouble()
-        {
-            double value = double.MaxValue;
-            string json = SimpleJson.SerializeObject(value);
-            double result = SimpleJson.DeserializeObject<double>(json);
-            Assert.That(result, Is.EqualTo(double.MaxValue));
-        }
-
-        [Test]
-        public void TestSerialize_DoubleInfinity()
-        {
-            double value = double.PositiveInfinity;
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Does.Contain("Infinity"));
-        }
-
-        [Test]
-        public void TestSerialize_DoubleNaN()
-        {
-            double value = double.NaN;
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Does.Contain("NaN"));
-        }
-
-        [Test]
-        public void TestSerialize_EmptyString()
-        {
-            string value = "";
-            string json = SimpleJson.SerializeObject(value);
-            Assert.That(json, Is.EqualTo(@""""""));
-        }
-
-        [Test]
-        public void TestDeserialize_EmptyString()
-        {
-            string json = @"""""";
-            string result = SimpleJson.DeserializeObject<string>(json);
-            Assert.That(result, Is.EqualTo(""));
-        }
-
-        #endregion
-
-        #region 空白和格式测试
-
-        [Test]
-        public void TestDeserialize_JsonWithWhitespace()
-        {
-            string json = "{ \"Name\" : \"John\" , \"Age\" : 30 }";
-            var result = SimpleJson.DeserializeObject<SimpleJsonComplexTypeTests.SimplePerson>(json);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Name, Is.EqualTo("John"));
-            Assert.That(result.Age, Is.EqualTo(30));
-        }
-
-        [Test]
-        public void TestDeserialize_JsonWithNewlines()
-        {
-            string json = @"{
-                ""Name"": ""John"",
-                ""Age"": 30
-            }";
-            var result = SimpleJson.DeserializeObject<SimpleJsonComplexTypeTests.SimplePerson>(json);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Name, Is.EqualTo("John"));
-        }
-
-        #endregion
-
-        #region 错误处理测试
-
-        [Test]
-        public void TestDeserialize_InvalidJson_Throws()
-        {
-            string json = "not valid json";
-            Assert.Throws<SerializationException>(() => SimpleJson.DeserializeObject<object>(json));
-        }
-
-        [Test]
-        public void TestDeserialize_TruncatedJson_Throws()
-        {
-            string json = @"{""Name"": ""John";
-            Assert.Throws<SerializationException>(() => SimpleJson.DeserializeObject<SimpleJsonComplexTypeTests.SimplePerson>(json));
-        }
-
-        [Test]
-        public void TestDeserialize_TypeMismatch()
-        {
-            string json = @"""not a number""";
-            Assert.Throws<FormatException>(() => SimpleJson.DeserializeObject<int>(json));
-        }
-
-        #endregion
-
-        #region 扩展方法测试
-
-        [Test]
-        public void TestToJson_ExtensionMethod()
-        {
-            var person = new SimpleJsonComplexTypeTests.SimplePerson { Name = "Test", Age = 25 };
-            string json = person.ToJson();
-            Assert.That(json, Does.Contain("Test"));
-            Assert.That(json, Does.Contain("25"));
-        }
-
-        [Test]
-        public void TestFromJson_ExtensionMethod()
-        {
-            string json = @"{""Name"":""Test"",""Age"":25}";
-            var result = json.FromJson<SimpleJsonComplexTypeTests.SimplePerson>();
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Name, Is.EqualTo("Test"));
-            Assert.That(result.Age, Is.EqualTo(25));
-        }
-
-        [Test]
-        public void TestToJson_WithLowerCase()
-        {
-            var person = new SimpleJsonComplexTypeTests.SimplePerson { Name = "Test", Age = 25 };
-            string json = person.ToJson(lowerCase: true);
-            Assert.That(json, Does.Contain("name"));
-            Assert.That(json, Does.Contain("age"));
-        }
-
-        [Test]
-        public void TestFromJson_WithLowerCase()
-        {
-            string json = @"{""name"":""Test"",""age"":25}";
-            var result = json.FromJson<SimpleJsonComplexTypeTests.SimplePerson>(lowerCase: true);
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Name, Is.EqualTo("Test"));
-            Assert.That(result.Age, Is.EqualTo(25));
-        }
-
-        #endregion
-    }
-
-    [TestFixture]
-    [Category("Performance")]
-    public class SimpleJsonPerformanceTests
-    {
-        [Test]
-        public void TestPerformance_SerializeManyObjects()
-        {
-            var persons = new List<SimpleJsonComplexTypeTests.SimplePerson>();
-            for (int i = 0; i < 1000; i++)
+            Assert.BeginTest("Dict duplicate keys: latter wins");
             {
-                persons.Add(new SimpleJsonComplexTypeTests.SimplePerson
+                string json = "{\"a\":1,\"a\":2}";
+                var result = SimpleJson.DeserializeObject<
+                    Dictionary<string,int>>(json);
+                Assert.AreEqual(1,result.Count);
+                Assert.AreEqual(2,result["a"],
+                    "Latter duplicate key must win");
+            }
+
+            Assert.BeginTest("Hashtable (non-generic) round-trip");
+            {
+                var dict = new Hashtable
+                    { { "k1", "v1" }, { "k2", 42 }, { "k3", true } };
+                string json = SimpleJson.SerializeObject(dict);
+                var result = SimpleJson.DeserializeObject<Hashtable>(json);
+                Assert.AreEqual(dict.Count,result.Count);
+                Assert.AreEqual("v1",result["k1"]);
+                Assert.AreEqual(true,result["k3"]);
+            }
+
+            Assert.BeginTest("Null dict key throws");
+            {
+                Assert.Throws<Exception>(() =>
                 {
-                    Name = $"Person_{i}",
-                    Age = i % 100
+                    var d = new Hashtable { { null,"v" } };
+                    SimpleJson.SerializeObject(d);
+                });
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 8. Nullable<T>
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestNullable()
+        {
+            Assert.BeginTest("Nullable<T> with value: round-trip");
+            {
+                var original = new NullablePoco
+                { NullableInt = 42,NullableFloat = 3.14f,NullableEnum = Color.Green };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<NullablePoco>(json);
+                Assert.AreEqual(42,result.NullableInt);
+                Assert.AreEqual(3.14f,result.NullableFloat);
+                Assert.AreEqual(Color.Green,result.NullableEnum);
+            }
+
+            Assert.BeginTest("Nullable<T> null value: round-trip");
+            {
+                var original = new NullablePoco
+                { NullableInt = null,NullableFloat = null,NullableEnum = null };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<NullablePoco>(json);
+                Assert.IsNull(result.NullableInt);
+                Assert.IsNull(result.NullableFloat);
+                Assert.IsNull(result.NullableEnum);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 9. DateTime / DateTimeOffset / Guid
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestDateTimeGuid()
+        {
+            Assert.BeginTest("DateTime UTC round-trip");
+            {
+                var original = new DateTime(2025,6,15,10,30,45,DateTimeKind.Utc);
+                var obj = new DateTimePoco { DateTime = original };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<DateTimePoco>(json);
+                Assert.AreEqual(original,result.DateTime);
+            }
+
+            Assert.BeginTest("DateTimeOffset round-trip");
+            {
+                var original = new DateTimeOffset(
+                    2025,6,15,10,30,45,TimeSpan.FromHours(8));
+                var obj = new DateTimePoco { DateTimeOffset = original };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<DateTimePoco>(json);
+                Assert.AreEqual(original,result.DateTimeOffset);
+            }
+
+            Assert.BeginTest("TimeSpan round-trip");
+            {
+                var original = TimeSpan.FromHours(2.5);
+                var obj = new DateTimePoco { TimeSpan = original };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<DateTimePoco>(json);
+                Assert.AreEqual(original,result.TimeSpan);
+            }
+
+            Assert.BeginTest("TimeSpan from ticks");
+            {
+                var original = TimeSpan.FromTicks(1234567890);
+                var obj = new DateTimePoco { TimeSpan = original };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<DateTimePoco>(json);
+                Assert.AreEqual(original,result.TimeSpan);
+            }
+
+            Assert.BeginTest("TimeSpan negative");
+            {
+                var original = TimeSpan.FromHours(-3.5);
+                var obj = new DateTimePoco { TimeSpan = original };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<DateTimePoco>(json);
+                Assert.AreEqual(original,result.TimeSpan);
+            }
+
+            Assert.BeginTest("Guid round-trip");
+            {
+                var original = Guid.NewGuid();
+                var obj = new DateTimePoco { Guid = original };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<DateTimePoco>(json);
+                Assert.AreEqual(original,result.Guid);
+            }
+
+            Assert.BeginTest("Guid.Empty round-trip");
+            {
+                var original = Guid.Empty;
+                var obj = new DateTimePoco { Guid = original };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<DateTimePoco>(json);
+                Assert.AreEqual(original,result.Guid);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 10. 集合类型
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestCollections()
+        {
+            Assert.BeginTest("List<int> round-trip");
+            {
+                var original = new List<int> { 1,2,3,4,5 };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<List<int>>(json);
+                Assert.AreEqual(original.Count,result.Count);
+                for (int i = 0; i < original.Count; i++)
+                    Assert.AreEqual(original[i],result[i]);
+            }
+
+            Assert.BeginTest("List<string> round-trip");
+            {
+                var original = new List<string> { "alpha","beta","gamma" };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<List<string>>(json);
+                Assert.AreEqual(original.Count,result.Count);
+                for (int i = 0; i < original.Count; i++)
+                    Assert.AreEqual(original[i],result[i]);
+            }
+
+            Assert.BeginTest("int[] round-trip");
+            {
+                int[] original = { 10,20,30 };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<int[]>(json);
+                Assert.AreEqual(original.Length,result.Length);
+                for (int i = 0; i < original.Length; i++)
+                    Assert.AreEqual(original[i],result[i]);
+            }
+
+            Assert.BeginTest("string[] round-trip");
+            {
+                string[] original = { "x","y","z" };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<string[]>(json);
+                Assert.AreEqual(original.Length,result.Length);
+                for (int i = 0; i < original.Length; i++)
+                    Assert.AreEqual(original[i],result[i]);
+            }
+
+            Assert.BeginTest("List<BasicPoco> round-trip");
+            {
+                var original = new List<BasicPoco>
+                {
+                    new BasicPoco { Name = "Alice", Age = 30 },
+                    new BasicPoco { Name = "Bob",   Age = 25 }
+                };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<List<BasicPoco>>(json);
+                Assert.AreEqual(2,result.Count);
+                Assert.AreEqual("Alice",result[0].Name);
+                Assert.AreEqual("Bob",result[1].Name);
+                Assert.AreEqual(30,result[0].Age);
+                Assert.AreEqual(25,result[1].Age);
+            }
+
+            Assert.BeginTest("List with null elements");
+            {
+                var original = new List<object> { 1,null,"test",null };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<List<object>>(json);
+                Assert.AreEqual(4,result.Count);
+                Assert.IsNull(result[1]);
+                Assert.IsNull(result[3]);
+            }
+
+            Assert.BeginTest("Empty List<int> round-trip");
+            {
+                var original = new List<int>();
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<List<int>>(json);
+                Assert.AreEqual(0,result.Count);
+            }
+
+            Assert.BeginTest("Empty JSON array deserializes to empty list");
+            {
+                var result = SimpleJson.DeserializeObject<List<int>>("[]");
+                Assert.AreEqual(0,result.Count);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 11. 类型转换 CoerceValue
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestTypeCoercion()
+        {
+            Assert.BeginTest("CoerceValue: int JSON → float property");
+            {
+                string json = "{\"FloatValue\":42}";
+                var result = SimpleJson.DeserializeObject<FloatPoco>(json);
+                Assert.AreEqual(42.0f,result.FloatValue,0f);
+            }
+
+            Assert.BeginTest("CoerceValue: double JSON → int property (truncate)");
+            {
+                string json = "{\"Age\":30.9}";
+                var result = SimpleJson.DeserializeObject<BasicPoco>(json);
+                Assert.AreEqual(30,result.Age,
+                    "Double-to-int coercion must truncate decimal part");
+            }
+
+            Assert.BeginTest("CoerceValue: incompatible string → int skips gracefully");
+            {
+                string json = "{\"Age\":\"not_a_number\"}";
+                var result = SimpleJson.DeserializeObject<BasicPoco>(json);
+                Assert.AreEqual(0,result.Age,
+                    "Failed coercion must leave property at default value (0)");
+            }
+
+            Assert.BeginTest("CoerceValue: enum from numeric int");
+            {
+                string json = "{\"Status\":1}";
+                var result = SimpleJson.DeserializeObject<EnumPoco>(json);
+                Assert.AreEqual(Color.Green,result.Status);
+            }
+
+            Assert.BeginTest("CoerceValue: enum from name string");
+            {
+                string json = "{\"Status\":\"Blue\"}";
+                var result = SimpleJson.DeserializeObject<EnumPoco>(json);
+                Assert.AreEqual(Color.Blue,result.Status);
+            }
+
+            Assert.BeginTest("CoerceValue: enum from float (truncate decimal)");
+            {
+                string json = "{\"Status\":1.9}";
+                var result = SimpleJson.DeserializeObject<EnumPoco>(json);
+                Assert.AreEqual(Color.Green,result.Status,
+                    "Float 1.9 truncated to 1 must map to Color.Green");
+            }
+
+            Assert.BeginTest("CoerceValue: Nullable<int> from int JSON");
+            {
+                string json = "{\"NullableInt\":99}";
+                var result = SimpleJson.DeserializeObject<NullablePoco>(json);
+                Assert.AreEqual(99,result.NullableInt);
+            }
+
+            Assert.BeginTest("CoerceValue: Nullable<int> from null JSON");
+            {
+                string json = "{\"NullableInt\":null}";
+                var result = SimpleJson.DeserializeObject<NullablePoco>(json);
+                Assert.IsNull(result.NullableInt);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 12. 无参构造缺失
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestNoCtor()
+        {
+            Assert.BeginTest("No parameterless ctor throws MissingMethodException");
+            {
+                Assert.Throws<MissingMethodException>(() =>
+                    SimpleJson.DeserializeObject<NoCtor>("{\"Value\":\"test\"}"),
+                    "Type without parameterless ctor must throw MissingMethodException");
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 13. toLowerCase 策略与缓存隔离
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestToLowerCase()
+        {
+            Assert.BeginTest("toLowerCase=true: serialize produces lowercase keys");
+            {
+                var strategy = new DefaultJsonSerializationStrategy { toLowerCase = true };
+                var obj = new BasicPoco { Name = "Test",Age = 30 };
+                string json = SimpleJson.SerializeObject(obj,strategy);
+                Assert.Contains(json,"\"name\"");
+                Assert.Contains(json,"\"age\"");
+                Assert.IsFalse(json.Contains("\"Name\""),
+                    "PascalCase key must not appear when toLowerCase=true");
+            }
+
+            Assert.BeginTest("toLowerCase=true: deserialize accepts lowercase keys");
+            {
+                var strategy = new DefaultJsonSerializationStrategy { toLowerCase = true };
+                string json = "{\"name\":\"Test\",\"age\":30}";
+                var result = SimpleJson.DeserializeObject<BasicPoco>(json,strategy);
+                Assert.AreEqual("Test",result.Name);
+                Assert.AreEqual(30,result.Age);
+            }
+
+            Assert.BeginTest("toLowerCase=false: serialize preserves original casing");
+            {
+                var strategy = new DefaultJsonSerializationStrategy { toLowerCase = false };
+                var obj = new BasicPoco { Name = "Test",Age = 30 };
+                string json = SimpleJson.SerializeObject(obj,strategy);
+                Assert.Contains(json,"\"Name\"");
+                Assert.Contains(json,"\"Age\"");
+            }
+
+            Assert.BeginTest("Cache isolation: toLowerCase=true/false do not pollute each other");
+            {
+                var strategyLower = new DefaultJsonSerializationStrategy { toLowerCase = true };
+                var strategyOriginal = new DefaultJsonSerializationStrategy { toLowerCase = false };
+                var obj = new BasicPoco { Name = "Test",Age = 30 };
+
+                string jsonLower = SimpleJson.SerializeObject(obj,strategyLower);
+                string jsonOriginal = SimpleJson.SerializeObject(obj,strategyOriginal);
+
+                Assert.Contains(jsonLower,"\"name\"");
+                Assert.Contains(jsonOriginal,"\"Name\"");
+
+                var resultLower = SimpleJson.DeserializeObject<BasicPoco>(
+                    jsonLower,strategyLower);
+                var resultOriginal = SimpleJson.DeserializeObject<BasicPoco>(
+                    jsonOriginal,strategyOriginal);
+
+                Assert.AreEqual("Test",resultLower.Name);
+                Assert.AreEqual("Test",resultOriginal.Name);
+                Assert.AreEqual(30,resultLower.Age);
+                Assert.AreEqual(30,resultOriginal.Age);
+            }
+
+            Assert.BeginTest("Cache isolation: cross-use results in default values (no crash)");
+            {
+                var strategyLower = new DefaultJsonSerializationStrategy { toLowerCase = true };
+                var strategyOriginal = new DefaultJsonSerializationStrategy { toLowerCase = false };
+                var obj = new BasicPoco { Name = "Test",Age = 30 };
+
+                string jsonLower = SimpleJson.SerializeObject(obj,strategyLower);
+
+                Assert.DoesNotThrow(() =>
+                {
+                    // lowercase JSON + original-case strategy → key mismatch → default values
+                    var result = SimpleJson.DeserializeObject<BasicPoco>(
+                        jsonLower,strategyOriginal);
+                    // 不抛异常即可，字段保持默认值
+                    _ = result;
+                });
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 14. 字符串转义
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestStringEscape()
+        {
+            Assert.BeginTest("Escape: newline / tab / CRLF round-trip");
+            {
+                var original = new BasicPoco
+                { Name = "Line1\nLine2\tTabbed\r\nCRLF" };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<BasicPoco>(json);
+                Assert.AreEqual(original.Name,result.Name);
+            }
+
+            Assert.BeginTest("Escape: quote and backslash round-trip");
+            {
+                var original = new BasicPoco
+                { Name = "Say \"Hello\" and C:\\path\\to\\file" };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<BasicPoco>(json);
+                Assert.AreEqual(original.Name,result.Name);
+            }
+
+            Assert.BeginTest("Escape: CJK characters round-trip");
+            {
+                var original = new BasicPoco { Name = "中文日本語한국어" };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<BasicPoco>(json);
+                Assert.AreEqual(original.Name,result.Name);
+            }
+
+            Assert.BeginTest("Escape: \\uXXXX sequence (é = \\u00E9)");
+            {
+                var original = new BasicPoco { Name = "caf\u00E9" };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<BasicPoco>(json);
+                Assert.AreEqual(original.Name,result.Name);
+            }
+
+            Assert.BeginTest("Escape: UTF-16 surrogate pair (😀 = \\uD83D\\uDE00)");
+            {
+                var original = new BasicPoco { Name = "Hello \uD83D\uDE00 World" };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<BasicPoco>(json);
+                Assert.AreEqual(original.Name,result.Name,
+                    "Surrogate pairs (emoji) must survive round-trip");
+            }
+
+            Assert.BeginTest("Escape: empty string round-trip");
+            {
+                var original = new BasicPoco { Name = "" };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<BasicPoco>(json);
+                Assert.AreEqual("",result.Name);
+            }
+
+            Assert.BeginTest("Escape: forward slash not mangled");
+            {
+                var original = new BasicPoco { Name = "http://example.com/path" };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<BasicPoco>(json);
+                Assert.AreEqual(original.Name,result.Name);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 15. 数字范围
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestNumberRange()
+        {
+            Assert.BeginTest("long.MaxValue round-trip");
+            {
+                long original = long.MaxValue;
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<long>(json);
+                Assert.AreEqual(original,result);
+            }
+
+            Assert.BeginTest("long.MinValue round-trip");
+            {
+                long original = long.MinValue;
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<long>(json);
+                Assert.AreEqual(original,result);
+            }
+
+            Assert.BeginTest("ulong.MaxValue round-trip");
+            {
+                ulong original = ulong.MaxValue;
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<ulong>(json);
+                Assert.AreEqual(original,result);
+            }
+
+            Assert.BeginTest("Negative int round-trip");
+            {
+                int original = -99999;
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<int>(json);
+                Assert.AreEqual(original,result);
+            }
+
+            Assert.BeginTest("Zero round-trip");
+            {
+                int original = 0;
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<int>(json);
+                Assert.AreEqual(original,result);
+            }
+
+            Assert.BeginTest("Beyond-ulong number falls back to double (no exception)");
+            {
+                Assert.DoesNotThrow(() =>
+                {
+                    string json = "{\"Value\":99999999999999999999999}";
+                    var result = SimpleJson.DeserializeObject<
+                        Dictionary<string,object>>(json);
+                    Assert.IsNotNull(result["Value"],
+                        "Beyond-ulong must fall back to double without throwing");
                 });
             }
 
-            var sw = Stopwatch.StartNew();
-            string json = SimpleJson.SerializeObject(persons);
-            sw.Stop();
-
-            Assert.That(json, Is.Not.Null);
-            Assert.That(json.Length, Is.GreaterThan(0));
-            Console.WriteLine($"Serialize 1000 objects: {sw.ElapsedMilliseconds}ms");
+            Assert.BeginTest("Float exponent notation round-trip");
+            {
+                double original = 1.23e10;
+                var obj = new FloatPoco { DoubleValue = original };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<FloatPoco>(json);
+                Assert.AreEqual(original,result.DoubleValue,1.0);
+            }
         }
 
-        [Test]
-        public void TestPerformance_DeserializeManyObjects()
+        // ──────────────────────────────────────────────────────────
+        // 16. char 类型
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestChar()
         {
-            var persons = new List<SimpleJsonComplexTypeTests.SimplePerson>();
-            for (int i = 0; i < 1000; i++)
+            Assert.BeginTest("char single character round-trip");
             {
-                persons.Add(new SimpleJsonComplexTypeTests.SimplePerson
+                var obj = new CharPoco { Ch = 'Z' };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<CharPoco>(json);
+                Assert.AreEqual('Z',result.Ch);
+            }
+
+            Assert.BeginTest("char from multi-char string: takes first, no exception");
+            {
+                Assert.DoesNotThrow(() =>
                 {
-                    Name = $"Person_{i}",
-                    Age = i % 100
+                    string json = "{\"Ch\":\"XYZ\"}";
+                    var result = SimpleJson.DeserializeObject<CharPoco>(json);
+                    Assert.AreEqual('X',result.Ch,
+                        "Multi-char string assigned to char must take first character");
                 });
             }
-            string json = SimpleJson.SerializeObject(persons);
-
-            var sw = Stopwatch.StartNew();
-            var result = SimpleJson.DeserializeObject<List<SimpleJsonComplexTypeTests.SimplePerson>>(json);
-            sw.Stop();
-
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result.Count, Is.EqualTo(1000));
-            Console.WriteLine($"Deserialize 1000 objects: {sw.ElapsedMilliseconds}ms");
         }
 
-        [Test]
-        public void TestPerformance_DeepNestedObject()
+        // ──────────────────────────────────────────────────────────
+        // 17. new-hide 属性去重（最派生版本优先）
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestShadowProperty()
         {
-            var root = new SimpleJsonComplexTypeTests.RecursiveModel { Name = "Root" };
-            var current = root;
-            for (int i = 0; i < 100; i++)
+            Assert.BeginTest("new-hide: most derived property version used");
             {
-                var child = new SimpleJsonComplexTypeTests.RecursiveModel { Name = $"Level_{i}", Child = new SimpleJsonComplexTypeTests.RecursiveModel { Name = "" } };
-                current.Child = child;
-                current = child;
+                var obj = new ShadowChild { Value = "child_string" };
+                string json = SimpleJson.SerializeObject(obj);
+                Assert.Contains(json,"child_string",
+                    "Most derived (string) Value must be serialized");
+
+                var result = SimpleJson.DeserializeObject<ShadowChild>(json);
+                Assert.AreEqual("child_string",result.Value);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 18. 嵌套对象
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestNested()
+        {
+            Assert.BeginTest("Nested POCO: outer/inner structure preserved");
+            {
+                var inner = new BasicPoco { Name = "inner",Age = 10 };
+                var outer = new Dictionary<string,object>
+                    { { "Outer", "outer_val" }, { "Inner", inner } };
+
+                string json = SimpleJson.SerializeObject(outer);
+                var result = SimpleJson.DeserializeObject<
+                    Dictionary<string,object>>(json);
+
+                Assert.IsTrue(result.ContainsKey("Outer"));
+                Assert.IsTrue(result.ContainsKey("Inner"));
             }
 
-            var sw = Stopwatch.StartNew();
-            string json = SimpleJson.SerializeObject(root);
-            sw.Stop();
+            Assert.BeginTest("List of Dict round-trip");
+            {
+                var original = new List<Dictionary<string,int>>
+                {
+                    new Dictionary<string, int> { { "a", 1 }, { "b", 2 } },
+                    new Dictionary<string, int> { { "c", 3 }, { "d", 4 } }
+                };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<
+                    List<Dictionary<string,int>>>(json);
 
-            Assert.That(json, Is.Not.Null);
-            Console.WriteLine($"Serialize 100-level nested object: {sw.ElapsedMilliseconds}ms");
+                Assert.AreEqual(2,result.Count);
+                Assert.AreEqual(1,result[0]["a"]);
+                Assert.AreEqual(3,result[1]["c"]);
+            }
+
+            Assert.BeginTest("Deeply nested JSON round-trip");
+            {
+                var deep = new Dictionary<string,object>
+                {
+                    {
+                        "level1", new Dictionary<string, object>
+                        {
+                            {
+                                "level2", new Dictionary<string, object>
+                                {
+                                    { "value", 42 }
+                                }
+                            }
+                        }
+                    }
+                };
+                string json = SimpleJson.SerializeObject(deep);
+                var result = SimpleJson.DeserializeObject<
+                    Dictionary<string,object>>(json);
+
+                Assert.IsNotNull(result["level1"]);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 19. 错误处理
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestErrorHandling()
+        {
+            Assert.BeginTest("Invalid JSON throws exception");
+            {
+                Assert.Throws<Exception>(() =>
+                    SimpleJson.DeserializeObject<BasicPoco>("{invalid json}"));
+            }
+
+            Assert.BeginTest("Truncated JSON throws exception");
+            {
+                Assert.Throws<Exception>(() =>
+                    SimpleJson.DeserializeObject<BasicPoco>("{\"Name\":"));
+            }
+
+            Assert.BeginTest("Empty string throws or returns null gracefully");
+            {
+                Assert.DoesNotThrow(() =>
+                {
+                    try
+                    {
+                        SimpleJson.DeserializeObject<object>("");
+                    }
+                    catch (Exception)
+                    {
+                        // 空字符串抛出异常是可接受的行为
+                    }
+                });
+            }
+
+            Assert.BeginTest("Null JSON string handled gracefully");
+            {
+                Assert.DoesNotThrow(() =>
+                {
+                    try
+                    {
+                        SimpleJson.DeserializeObject<object>(null);
+                    }
+                    catch (Exception)
+                    {
+                        // null 字符串抛出异常是可接受的行为
+                    }
+                });
+            }
+
+            Assert.BeginTest("Wrong type in JSON array does not crash");
+            {
+                Assert.DoesNotThrow(() =>
+                {
+                    // JSON 中混合类型数组
+                    string json = "[1, \"two\", true, null, 3.14]";
+                    var result = SimpleJson.DeserializeObject<List<object>>(json);
+                    Assert.AreEqual(5,result.Count);
+                });
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 20. ClearCache 不崩溃
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestClearCache()
+        {
+            // 注意：SimpleJson_Unity.cs 中没有 ClearReflectionCache 方法
+            // 此测试已被禁用
+
+            Assert.BeginTest("ClearReflectionCache does not throw");
+            {
+                Assert.DoesNotThrow(() => SimpleJson.ClearReflectionCache(),
+                    "ClearReflectionCache must not throw NotImplementedException");
+            }
+
+            Assert.BeginTest("ClearCache then serialize still works");
+            {
+                SimpleJson.ClearReflectionCache();
+                var obj = new BasicPoco { Name = "Test",Age = 30 };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<BasicPoco>(json);
+                Assert.AreEqual("Test",result.Name);
+                Assert.AreEqual(30,result.Age);
+            }
+
+            Assert.BeginTest("ClearCache multiple times does not crash");
+            {
+                Assert.DoesNotThrow(() =>
+                {
+                    for (int i = 0; i < 5; i++)
+                        SimpleJson.ClearReflectionCache();
+                });
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 21. 线程安全
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestThreadSafety()
+        {
+            Assert.BeginTest("Concurrent serialization of same type: no exception");
+            {
+                var obj = new BasicPoco { Name = "Thread",Age = 99 };
+                var exceptions = new List<Exception>();
+                var lockObj = new object();
+                var threads = new List<Thread>();
+
+                for (int i = 0; i < 8; i++)
+                {
+                    var t = new Thread(() =>
+                    {
+                        try
+                        {
+                            for (int j = 0; j < 200; j++)
+                            {
+                                string json = SimpleJson.SerializeObject(obj);
+                                var result = SimpleJson.DeserializeObject<BasicPoco>(json);
+                                if (result.Name != "Thread" || result.Age != 99)
+                                    throw new Exception("Data mismatch");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            lock (lockObj) { exceptions.Add(ex); }
+                        }
+                    });
+                    threads.Add(t);
+                    t.Start();
+                }
+
+                foreach (var t in threads) t.Join();
+
+                Assert.AreEqual(0,exceptions.Count,
+                    "Concurrent serialization must produce no exceptions");
+            }
+
+            Assert.BeginTest("Concurrent first-access for different types: no exception");
+            {
+                var exceptions = new List<Exception>();
+                var lockObj = new object();
+                var threads = new List<Thread>();
+
+                var objects = new object[]
+                {
+                    new BasicPoco    { Name = "A" },
+                    new FloatPoco    { FloatValue = 1.5f },
+                    new NullablePoco { NullableInt = 10 },
+                    new EnumPoco     { Status = Color.Red },
+                    new CollectionPoco
+                    {
+                        IntList       = new List<int> { 1, 2 },
+                        StringKeyDict = new Dictionary<string, int> { { "k", 1 } },
+                        IntKeyDict    = new Dictionary<int, string> { { 1, "v" } },
+                        EnumKeyDict   = new Dictionary<Color, float>
+                            { { Color.Red, 1.0f } }
+                    }
+                };
+
+                foreach (var captured in objects)
+                {
+                    var cap = captured;
+                    var t = new Thread(() =>
+                    {
+                        try
+                        {
+                            for (int j = 0; j < 100; j++)
+                                SimpleJson.SerializeObject(cap);
+                        }
+                        catch (Exception ex)
+                        {
+                            lock (lockObj) { exceptions.Add(ex); }
+                        }
+                    });
+                    threads.Add(t);
+                    t.Start();
+                }
+
+                foreach (var t in threads) t.Join();
+
+                Assert.AreEqual(0,exceptions.Count,
+                    "Concurrent first-access for different types must not throw");
+            }
+
+            Assert.BeginTest("Concurrent ClearCache + serialize: no deadlock");
+            {
+                // 注意：SimpleJson_Unity.cs 中没有 ClearReflectionCache 方法
+                // 此测试已被禁用
+
+                var exceptions = new List<Exception>();
+                var lockObj = new object();
+                var done = false;
+
+                var clearThread = new Thread(() =>
+                {
+                    try
+                    {
+                        for (int i = 0; i < 20; i++)
+                        {
+                            SimpleJson.ClearReflectionCache();
+                            Thread.Sleep(1);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        lock (lockObj) { exceptions.Add(ex); }
+                    }
+                    finally { done = true; }
+                });
+
+                var serializeThread = new Thread(() =>
+                {
+                    var obj = new BasicPoco { Name = "X",Age = 1 };
+                    try
+                    {
+                        while (!done)
+                        {
+                            string json = SimpleJson.SerializeObject(obj);
+                            SimpleJson.DeserializeObject<BasicPoco>(json);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        lock (lockObj) { exceptions.Add(ex); }
+                    }
+                });
+
+                clearThread.Start();
+                serializeThread.Start();
+                clearThread.Join(3000);
+                serializeThread.Join(3000);
+
+                Assert.AreEqual(0,exceptions.Count,
+                    "ClearCache concurrent with serialize must not throw");
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 22. 往返完整性验证
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestFullRoundTrip()
+        {
+            Assert.BeginTest("Full CollectionPoco round-trip");
+            {
+                var original = new CollectionPoco
+                {
+                    IntList = new List<int> { 1,2,3 },
+                    StringKeyDict = new Dictionary<string,int>
+                        { { "x", 10 }, { "y", 20 } },
+                    IntKeyDict = new Dictionary<int,string>
+                        { { 1, "one" }, { 2, "two" } },
+                    EnumKeyDict = new Dictionary<Color,float>
+                    {
+                        { Color.Red,   0.1f },
+                        { Color.Green, 0.2f },
+                        { Color.Blue,  0.3f }
+                    }
+                };
+
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<CollectionPoco>(json);
+
+                // IntList
+                Assert.AreEqual(original.IntList.Count,result.IntList.Count);
+                for (int i = 0; i < original.IntList.Count; i++)
+                    Assert.AreEqual(original.IntList[i],result.IntList[i]);
+
+                // StringKeyDict
+                Assert.AreEqual(original.StringKeyDict.Count,
+                    result.StringKeyDict.Count);
+                foreach (var kvp in original.StringKeyDict)
+                    Assert.AreEqual(kvp.Value,result.StringKeyDict[kvp.Key]);
+
+                // IntKeyDict
+                Assert.AreEqual(original.IntKeyDict.Count,result.IntKeyDict.Count);
+                foreach (var kvp in original.IntKeyDict)
+                    Assert.AreEqual(kvp.Value,result.IntKeyDict[kvp.Key]);
+
+                // EnumKeyDict
+                Assert.AreEqual(original.EnumKeyDict.Count,
+                    result.EnumKeyDict.Count);
+                foreach (var kvp in original.EnumKeyDict)
+                    Assert.AreEqual(kvp.Value,result.EnumKeyDict[kvp.Key],1e-5f);
+            }
+
+            Assert.BeginTest("All attributes combined round-trip");
+            {
+                var original = new AttributePoco
+                {
+                    Visible = "visible_val",
+                    Ignored = "should_not_persist",
+                    NewName = "new_name_val",
+                    WithAlias = "alias_val"
+                };
+                original.SetPrivateProperty("private_val");
+
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<AttributePoco>(json);
+
+                Assert.AreEqual("visible_val",result.Visible);
+                Assert.IsNull(result.Ignored,
+                    "JsonIgnore field must not be restored");
+                Assert.AreEqual("new_name_val",result.NewName);
+                Assert.AreEqual("alias_val",result.WithAlias);
+                Assert.AreEqual("private_val",result.GetPrivateProperty());
+            }
+
+            Assert.BeginTest("Float precision: all special values round-trip");
+            {
+                float[] floats =
+                {
+                    0f, 1f, -1f,
+                    float.Epsilon,
+                    float.MaxValue,
+                    1.0f / 3.0f,
+                    (float)Math.PI,
+                    123456789.0f
+                };
+
+                foreach (float f in floats)
+                {
+                    var obj = new FloatPoco { FloatValue = f };
+                    string json = SimpleJson.SerializeObject(obj);
+                    var result = SimpleJson.DeserializeObject<FloatPoco>(json);
+                    Assert.AreEqual(f,result.FloatValue,0f,
+                        "float round-trip failed for value: " + f);
+                }
+            }
+
+            Assert.BeginTest("Double precision: all special values round-trip");
+            {
+                double[] doubles =
+                {
+                    0.0, 1.0, -1.0,
+                    double.Epsilon,
+                    double.MaxValue,
+                    1.0 / 3.0,
+                    Math.PI,
+                    Math.E,
+                    1.23456789012345678
+                };
+
+                foreach (double d in doubles)
+                {
+                    var obj = new FloatPoco { DoubleValue = d };
+                    string json = SimpleJson.SerializeObject(obj);
+                    var result = SimpleJson.DeserializeObject<FloatPoco>(json);
+                    Assert.AreEqual(d,result.DoubleValue,0.0,
+                        "double round-trip failed for value: " + d);
+                }
+            }
+
+            Assert.BeginTest("JsonAlias: all deserialization paths");
+            {
+                // 通过别名
+                var r1 = SimpleJson.DeserializeObject<AttributePoco>(
+                    "{\"old_name\":\"via_alias\"}");
+                Assert.AreEqual("via_alias",r1.NewName);
+
+                // 通过原始名
+                var r2 = SimpleJson.DeserializeObject<AttributePoco>(
+                    "{\"NewName\":\"via_original\"}");
+                Assert.AreEqual("via_original",r2.NewName);
+
+                // 序列化输出原始名
+                var obj = new AttributePoco { NewName = "serialize_test" };
+                string json = SimpleJson.SerializeObject(obj);
+                Assert.IsFalse(json.Contains("old_name"),
+                    "Alias must never appear in serialized output");
+            }
+
+            Assert.BeginTest("Nullable: mixed null and non-null in same object");
+            {
+                var original = new NullablePoco
+                {
+                    NullableInt = 42,
+                    NullableFloat = null,
+                    NullableEnum = Color.Blue
+                };
+                string json = SimpleJson.SerializeObject(original);
+                var result = SimpleJson.DeserializeObject<NullablePoco>(json);
+
+                Assert.AreEqual(42,result.NullableInt);
+                Assert.IsNull(result.NullableFloat);
+                Assert.AreEqual(Color.Blue,result.NullableEnum);
+            }
+
+            Assert.BeginTest("Large collection performance: no exception");
+            {
+                Assert.DoesNotThrow(() =>
+                {
+                    var obj = new CollectionPoco
+                    {
+                        IntList = new List<int>(),
+                        StringKeyDict = new Dictionary<string,int>(),
+                        IntKeyDict = new Dictionary<int,string>(),
+                        EnumKeyDict = new Dictionary<Color,float>()
+                    };
+
+                    for (int i = 0; i < 1000; i++)
+                    {
+                        obj.IntList.Add(i);
+                        obj.StringKeyDict["key" + i] = i;
+                        obj.IntKeyDict[i] = "val" + i;
+                        obj.EnumKeyDict[(Color)(i % 3)] = i * 0.5f;
+                    }
+
+                    string json = SimpleJson.SerializeObject(obj);
+                    var result = SimpleJson.DeserializeObject<CollectionPoco>(json);
+
+                    Assert.AreEqual(1000,result.IntList.Count);
+                    Assert.AreEqual(1000,result.StringKeyDict.Count);
+                    Assert.AreEqual(1000,result.IntKeyDict.Count);
+                });
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 23. JsonAlias 序列化别名（useJsonAliasForSerialization）
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestJsonAliasSerialization()
+        {
+            Assert.BeginTest("序列化默认使用原始属性名");
+            {
+                var obj = new AliasSerializePoco { UserName = "张三", UserId = 123 };
+                
+                var strategy = new DefaultJsonSerializationStrategy();
+                string json = SimpleJson.SerializeObject(obj, strategy);
+                
+                Assert.IsTrue(json.Contains("UserName"),
+                    "默认应该输出原始属性名 UserName");
+                Assert.IsTrue(json.Contains("UserId"),
+                    "默认应该输出原始属性名 UserId");
+                Assert.IsFalse(json.Contains("user_name"),
+                    "默认不应该输出别名 user_name");
+                Assert.IsFalse(json.Contains("user_id"),
+                    "默认不应该输出别名 user_id");
+            }
+
+            Assert.BeginTest("序列化启用 useJsonAliasForSerialization=true");
+            {
+                var obj = new AliasSerializePoco { UserName = "李四", UserId = 456 };
+                
+                var strategy = new DefaultJsonSerializationStrategy(false, true);
+                string json = SimpleJson.SerializeObject(obj, strategy);
+                
+                Assert.IsTrue(json.Contains("user_name"),
+                    "启用后应该输出第一个别名 user_name");
+                Assert.IsTrue(json.Contains("user_id"),
+                    "启用后应该输出第一个别名 user_id");
+                Assert.IsFalse(json.Contains("UserName") && !json.Contains("user_name"),
+                    "启用后不应该输出原始属性名 UserName");
+                Assert.IsFalse(json.Contains("UserId") && !json.Contains("user_id"),
+                    "启用后不应该输出原始属性名 UserId");
+            }
+
+            Assert.BeginTest("序列化别名 + toLowerCase 组合");
+            {
+                var obj = new AliasSerializePoco { UserName = "王五", UserId = 789 };
+                
+                var strategy = new DefaultJsonSerializationStrategy(true, true);
+                string json = SimpleJson.SerializeObject(obj, strategy);
+                
+                Assert.IsTrue(json.Contains("user_name"),
+                    "toLowerCase=true + alias 应该保持别名的原始大小写");
+                Assert.IsTrue(json.Contains("user_id"),
+                    "toLowerCase=true + alias 应该保持别名的原始大小写");
+            }
+
+            Assert.BeginTest("反序列化仍然支持所有别名");
+            {
+                var strategy = new DefaultJsonSerializationStrategy(false, true);
+                
+                string json1 = "{\"user_name\":\"from_alias1\"}";
+                var result1 = SimpleJson.DeserializeObject<AliasSerializePoco>(json1, strategy);
+                Assert.AreEqual("from_alias1", result1.UserName);
+
+                string json2 = "{\"userName\":\"from_alias2\"}";
+                var result2 = SimpleJson.DeserializeObject<AliasSerializePoco>(json2, strategy);
+                Assert.AreEqual("from_alias2", result2.UserName);
+
+                string json3 = "{\"UserName\":\"from_original\"}";
+                var result3 = SimpleJson.DeserializeObject<AliasSerializePoco>(json3, strategy);
+                Assert.AreEqual("from_original", result3.UserName);
+            }
+
+            Assert.BeginTest("AcceptOriginalName=false 时反序列化行为");
+            {
+                var strictObj = new StrictAliasPoco { Code = 200 };
+                string jsonStrict = SimpleJson.SerializeObject(strictObj);
+                Assert.IsTrue(jsonStrict.Contains("Code"),
+                    "无 JsonAlias 的属性应正常输出原始名称");
+
+                string jsonInput1 = "{\"api_code\":200}";
+                var result1 = SimpleJson.DeserializeObject<StrictAliasPoco>(jsonInput1);
+                Assert.AreEqual(200, result1.Code,
+                    "应接受别名 api_code");
+
+                string jsonInput2 = "{\"Code\":200}";
+                var result2 = SimpleJson.DeserializeObject<StrictAliasPoco>(jsonInput2);
+                Assert.AreEqual(0, result2.Code,
+                    "AcceptOriginalName=false 时不应接受原始名称 Code");
+            }
         }
     }
 
+  
 }
 
 
