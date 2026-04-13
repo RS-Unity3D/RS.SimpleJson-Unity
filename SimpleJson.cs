@@ -22,7 +22,7 @@
 ////sgd: 2025.12.15 support unity 3d
 ////sgd: 2025.11.10 support property To lower case
 ////sgd: 2025.10.1 support string key dictionary
-//// VERSION: 2.0.1.0
+//// VERSION: 2.0.0
 
 ////NOTE: uncomment the following line to make SimpleJson class internal.
 ////#define SIMPLE_JSON_INTERNAL
@@ -211,23 +211,34 @@ namespace RS.SimpleJsonUnity
     }
 
     // ──────────────────────────────────────────────────────────────
-    // TypeCacheKey  （setter 缓存复合 key，区分 toLowerCase 状态）
+    // TypeCacheKey  （缓存复合 key，区分 toLowerCase 和 useJsonAlias 状态）
     // ──────────────────────────────────────────────────────────────
 
     public struct TypeCacheKey : IEquatable<TypeCacheKey>
     {
         public readonly Type Type;
         public readonly bool ToLowerCase;
+        public readonly bool UseJsonAlias;
 
         public TypeCacheKey(Type type,bool toLowerCase)
         {
             Type = type;
             ToLowerCase = toLowerCase;
+            UseJsonAlias = false;
+        }
+
+        public TypeCacheKey(Type type, bool toLowerCase, bool useJsonAlias)
+        {
+            Type = type;
+            ToLowerCase = toLowerCase;
+            UseJsonAlias = useJsonAlias;
         }
 
         public bool Equals(TypeCacheKey other)
         {
-            return Type == other.Type && ToLowerCase == other.ToLowerCase;
+            return Type == other.Type 
+                && ToLowerCase == other.ToLowerCase 
+                && UseJsonAlias == other.UseJsonAlias;
         }
 
         public override bool Equals(object obj)
@@ -241,7 +252,9 @@ namespace RS.SimpleJsonUnity
             unchecked
             {
                 int h = (Type != null ? Type.GetHashCode() : 0);
-                return h ^ (ToLowerCase ? 0x55555555 : 0);
+                h ^= ToLowerCase.GetHashCode();
+                h = (h * 397) ^ UseJsonAlias.GetHashCode();
+                return h;
             }
         }
     }
@@ -490,10 +503,10 @@ namespace RS.SimpleJsonUnity
         protected const BindingFlags NONPUBLIC_INSTANCE =
             BindingFlags.NonPublic | BindingFlags.Instance;
 
-        // getter 缓存：序列化始终用原始 CLR 名，与 toLowerCase 无关
-        protected static readonly ThreadSafeDictionary<Type,
+        // getter 缓存：序列化键名受 useJsonAlias 影响，需要复合 key
+        protected static readonly ThreadSafeDictionary<TypeCacheKey,
             IDictionary<string,Func<object,object>>> _getterCache
-            = new ThreadSafeDictionary<Type,
+            = new ThreadSafeDictionary<TypeCacheKey,
                 IDictionary<string,Func<object,object>>>();
 
         // setter 缓存：反序列化 key 受 toLowerCase 影响，需要复合 key
@@ -995,13 +1008,14 @@ namespace RS.SimpleJsonUnity
     protected virtual IDictionary<string, Func<object, object>>
         GetOrBuildGetters(Type type)
     {
+        var cacheKey = new TypeCacheKey(type, toLowerCase, useJsonAliasForSerialization);
         IDictionary<string, Func<object, object>> cached;
-        if (_getterCache.TryGetValue(type, out cached)) return cached;
+        if (_getterCache.TryGetValue(cacheKey, out cached)) return cached;
         lock (_getterBuildLock)
         {
-            if (_getterCache.TryGetValue(type, out cached)) return cached;
+            if (_getterCache.TryGetValue(cacheKey, out cached)) return cached;
             IDictionary<string, Func<object, object>> built;
-            try   { built = BuildGetters(type); }
+            try   { built = BuildGetters(type, useJsonAliasForSerialization); }
             catch (Exception ex)
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
@@ -1011,7 +1025,7 @@ namespace RS.SimpleJsonUnity
                 // 不写缓存，允许下次重试
                 return new Dictionary<string, Func<object, object>>();
             }
-            _getterCache[type] = built;
+            _getterCache[cacheKey] = built;
             return built;
         }
     }
@@ -1045,11 +1059,13 @@ namespace RS.SimpleJsonUnity
         protected virtual IDictionary<string,Func<object,object>>
             GetOrBuildGetters(Type type)
         {
+            var cacheKey = new TypeCacheKey(type, toLowerCase, useJsonAliasForSerialization);
+
             _getterBuildLock.EnterReadLock();
             try
             {
                 IDictionary<string,Func<object,object>> cached;
-                if (_getterCache.TryGetValue(type,out cached)) return cached;
+                if (_getterCache.TryGetValue(cacheKey,out cached)) return cached;
             }
             finally { _getterBuildLock.ExitReadLock(); }
 
@@ -1057,7 +1073,7 @@ namespace RS.SimpleJsonUnity
             try
             {
                 IDictionary<string,Func<object,object>> cached;
-                if (_getterCache.TryGetValue(type,out cached)) return cached;
+                if (_getterCache.TryGetValue(cacheKey,out cached)) return cached;
                 IDictionary<string,Func<object,object>> built;
                 try { built = BuildGetters(type, useJsonAliasForSerialization); }
                 catch (Exception ex)
@@ -1068,7 +1084,7 @@ namespace RS.SimpleJsonUnity
 #endif
                     return new Dictionary<string,Func<object,object>>();
                 }
-                _getterCache[type] = built;
+                _getterCache[cacheKey] = built;
                 return built;
             }
             finally { _getterBuildLock.ExitWriteLock(); }
@@ -1192,36 +1208,10 @@ namespace RS.SimpleJsonUnity
 
             foreach (KeyValuePair<string,Func<object,object>> kvp in getters)
             {
-                string jsonKey;
-                
-                if (useJsonAliasForSerialization)
-                {
-                    // 查找该成员的 JsonAlias
-                    MemberInfo member = FindMemberByName(type,kvp.Key);
-                    if (member != null)
-                    {
-                        JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(member);
-                        if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
-                        {
-                            jsonKey = aliasAttr.Aliases[0];
-                            if (toLowerCase)
-                                jsonKey = jsonKey.ToLower(CultureInfo.InvariantCulture);
-                        }
-                        else
-                        {
-                            jsonKey = MapClrMemberNameToJsonFieldName(kvp.Key);
-                        }
-                    }
-                    else
-                    {
-                        jsonKey = MapClrMemberNameToJsonFieldName(kvp.Key);
-                    }
-                }
-                else
-                {
-                    jsonKey = MapClrMemberNameToJsonFieldName(kvp.Key);
-                }
-
+                // BuildGetters 已根据 useJsonAliasForSerialization 处理了键名
+                // 当 useJsonAliasForSerialization=true 时，kvp.Key 已是别名
+                // 当 useJsonAliasForSerialization=false 时，kvp.Key 是原始属性名
+                string jsonKey = MapClrMemberNameToJsonFieldName(kvp.Key);
                 object val = kvp.Value(input);
                 result[jsonKey] = val;
             }
@@ -3056,12 +3046,13 @@ namespace RS.SimpleJsonUnity
         {
             // 使用 DataContract 版本的 BuildGetters
             var cache = _getterCache;
+            var cacheKey = new TypeCacheKey(type, toLowerCase, useJsonAliasForSerialization);
             IDictionary<string, Func<object, object>> cached;
-            if (cache.TryGetValue(type, out cached)) return cached;
+            if (cache.TryGetValue(cacheKey, out cached)) return cached;
 
             lock (_getterBuildLock)
             {
-                if (cache.TryGetValue(type, out cached)) return cached;
+                if (cache.TryGetValue(cacheKey, out cached)) return cached;
                 IDictionary<string, Func<object, object>> built;
                 try { built = BuildGettersWithDataContract(type, toLowerCase, useJsonAliasForSerialization); }
                 catch (Exception ex)
@@ -3072,7 +3063,7 @@ namespace RS.SimpleJsonUnity
 #endif
                     return new Dictionary<string, Func<object, object>>();
                 }
-                cache[type] = built;
+                cache[cacheKey] = built;
                 return built;
             }
         }
