@@ -1990,7 +1990,7 @@ namespace RS.SimpleJsonUnity
             }
         }
      
-        internal static void ClearReflectionCache()
+        public static void ClearReflectionCache()
         {
             // 兼容 .NET 2.0/4.0：不使用 is T x 模式匹配
             DefaultJsonSerializationStrategy.ClearCache(); 
