@@ -21,7 +21,8 @@ namespace RS.SimpleJsonUnity.Tests
     // ──────────────────────────────────────────────────────────────
     // 极简断言框架（无外部依赖）
     // ──────────────────────────────────────────────────────────────
-    public class Test : Attribute { 
+    public class Test : Attribute
+    {
     }
     internal static class Assert
     {
@@ -217,17 +218,17 @@ namespace RS.SimpleJsonUnity.Tests
     // 用于测试序列化别名的 POCO
     public class AliasSerializePoco
     {
-        [JsonAlias("user_name", "userName", "username")]
+        [JsonAlias("user_name","userName","username")]
         public string UserName { get; set; }
 
-        [JsonAlias("user_id", "userId", "uid")]
+        [JsonAlias("user_id","userId","uid")]
         public int UserId { get; set; }
     }
 
     // 用于测试 AcceptOriginalName=false 的 POCO
     public class StrictAliasPoco
     {
-        [JsonAlias(false, "api_code", "code")]
+        [JsonAlias(false,"api_code","code")]
         public int Code { get; set; }
     }
 
@@ -301,6 +302,117 @@ namespace RS.SimpleJsonUnity.Tests
     public class CharPoco { public char Ch { get; set; } }
 
     // ──────────────────────────────────────────────────────────────
+    // 复杂多层嵌套类（用于测试 24）
+    // ──────────────────────────────────────────────────────────────
+
+    // 第一层：基础嵌套类
+    public class Address
+    {
+        public string Street { get; set; }
+        public string City { get; set; }
+        public string Country { get; set; }
+        public string ZipCode { get; set; }
+    }
+
+    // 第二层：包含 Address 的类
+    public class Person
+    {
+        public string Name { get; set; }
+        public int Age { get; set; }
+        public Address HomeAddress { get; set; }
+        public Address WorkAddress { get; set; }
+        public List<string> PhoneNumbers { get; set; }
+    }
+
+    // 第三层：包含 Person 列表的类
+    public class Department
+    {
+        public string Name { get; set; }
+        public Person Manager { get; set; }
+        public List<Person> Employees { get; set; }
+        public Dictionary<string,Person> MembersById { get; set; }
+    }
+
+    // 第四层：包含 Department 的公司类
+    public class Company
+    {
+        public string CompanyName { get; set; }
+        public List<Department> Departments { get; set; }
+        public Dictionary<string,Department> DepartmentsByName { get; set; }
+        public Person CEO { get; set; }
+    }
+
+    // 第五层：包含循环引用的类（测试循环引用检测）
+    public class Node
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public Node Parent { get; set; }  // 循环引用
+        public List<Node> Children { get; set; }  // 循环引用
+    }
+
+    // 第六层：多层继承嵌套类
+    public class BaseEntity
+    {
+        public int Id { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
+    public class User : BaseEntity
+    {
+        public string Username { get; set; }
+        public string Email { get; set; }
+        public Profile Profile { get; set; }
+    }
+
+    public class Profile : BaseEntity
+    {
+        public string DisplayName { get; set; }
+        public List<string> Tags { get; set; }
+        public Address Location { get; set; }
+    }
+
+    // 第七层：泛型嵌套类
+    public class Container<T>
+    {
+        public string ContainerName { get; set; }
+        public T Data { get; set; }
+        public List<T> Items { get; set; }
+    }
+
+    // 第八层：带 JsonAlias 的嵌套类
+    public class ApiUser
+    {
+        [JsonAlias("user_id","userId","uid")]
+        public int UserId { get; set; }
+
+        [JsonAlias("user_name","userName","username")]
+        public string UserName { get; set; }
+
+        public ApiProfile Profile { get; set; }
+    }
+
+    public class ApiProfile
+    {
+        [JsonAlias("profile_id","profileId")]
+        public int ProfileId { get; set; }
+
+        [JsonAlias("display_name","displayName")]
+        public string DisplayName { get; set; }
+
+        public List<ApiTag> Tags { get; set; }
+    }
+
+    public class ApiTag
+    {
+        [JsonAlias("tag_id","tagId")]
+        public int TagId { get; set; }
+
+        [JsonAlias("tag_name","tagName")]
+        public string TagName { get; set; }
+    }
+
+    // ──────────────────────────────────────────────────────────────
     // 测试入口
     // ──────────────────────────────────────────────────────────────
 
@@ -336,6 +448,7 @@ namespace RS.SimpleJsonUnity.Tests
             RunSection("21. 线程安全",TestThreadSafety);
             RunSection("22. 往返完整性验证",TestFullRoundTrip);
             RunSection("23. JsonAlias 序列化别名",TestJsonAliasSerialization);
+            RunSection("24. 复杂多层嵌套类",TestComplexNested);
 
             Assert.PrintSummary();
         }
@@ -373,11 +486,9 @@ namespace RS.SimpleJsonUnity.Tests
         {
             Assert.BeginTest("String round-trip");
             {
-                string json = SimpleJson.SerializeObject("你好");  
-                Console.WriteLine(json);
+                string json = SimpleJson.SerializeObject("Hello");
                 var result = SimpleJson.DeserializeObject<string>(json);
-              
-                Assert.AreEqual("你好",result);
+                Assert.AreEqual("Hello",result);
             }
 
             Assert.BeginTest("Int round-trip");
@@ -425,11 +536,10 @@ namespace RS.SimpleJsonUnity.Tests
             Assert.BeginTest("BasicPoco round-trip");
             {
                 var original = new BasicPoco
-                { Name = "Alice艾莉丝",Age = 30,Score = 9.5f,Height = 1.65 };
+                { Name = "Alice",Age = 30,Score = 9.5f,Height = 1.65 };
                 string json = SimpleJson.SerializeObject(original);
-                Console.WriteLine(json);
                 var result = SimpleJson.DeserializeObject<BasicPoco>(json);
-                Assert.AreEqual("Alice艾莉丝",result.Name);
+                Assert.AreEqual("Alice",result.Name);
                 Assert.AreEqual(30,result.Age);
                 Assert.AreEqual(9.5f,result.Score,1e-5f);
                 Assert.AreEqual(1.65,result.Height,1e-10);
@@ -817,7 +927,22 @@ namespace RS.SimpleJsonUnity.Tests
                 var result = SimpleJson.DeserializeObject<DateTimePoco>(json);
                 Assert.AreEqual(original,result.DateTime);
             }
-
+            Assert.BeginTest("DateTime Local round-trip");
+            {
+                var original = new DateTime(2025,6,15,10,30,45,DateTimeKind.Local);
+                var obj = new DateTimePoco { DateTime = original };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<DateTimePoco>(json);
+                Assert.AreEqual(original.ToUniversalTime(),result.DateTime);
+            }
+            Assert.BeginTest("DateTime Unspecified round-trip");
+            {
+                var original = new DateTime(2025,6,15,10,30,45,DateTimeKind.Unspecified);
+                var obj = new DateTimePoco { DateTime = original };
+                string json = SimpleJson.SerializeObject(obj);
+                var result = SimpleJson.DeserializeObject<DateTimePoco>(json);
+                Assert.AreEqual(original.ToUniversalTime(),result.DateTime);
+            }
             Assert.BeginTest("DateTimeOffset round-trip");
             {
                 var original = new DateTimeOffset(
@@ -1782,11 +1907,11 @@ namespace RS.SimpleJsonUnity.Tests
         {
             Assert.BeginTest("序列化默认使用原始属性名");
             {
-                var obj = new AliasSerializePoco { UserName = "张三", UserId = 123 };
-                
+                var obj = new AliasSerializePoco { UserName = "张三",UserId = 123 };
+
                 var strategy = new DefaultJsonSerializationStrategy();
-                string json = SimpleJson.SerializeObject(obj, strategy);
-                
+                string json = SimpleJson.SerializeObject(obj,strategy);
+
                 Assert.IsTrue(json.Contains("UserName"),
                     "默认应该输出原始属性名 UserName");
                 Assert.IsTrue(json.Contains("UserId"),
@@ -1799,11 +1924,11 @@ namespace RS.SimpleJsonUnity.Tests
 
             Assert.BeginTest("序列化启用 useJsonAliasForSerialization=true");
             {
-                var obj = new AliasSerializePoco { UserName = "李四", UserId = 456 };
-                
-                var strategy = new DefaultJsonSerializationStrategy(false, true);
-                string json = SimpleJson.SerializeObject(obj, strategy);
-                
+                var obj = new AliasSerializePoco { UserName = "李四",UserId = 456 };
+
+                var strategy = new DefaultJsonSerializationStrategy(false,true);
+                string json = SimpleJson.SerializeObject(obj,strategy);
+
                 Assert.IsTrue(json.Contains("user_name"),
                     "启用后应该输出第一个别名 user_name");
                 Assert.IsTrue(json.Contains("user_id"),
@@ -1816,11 +1941,11 @@ namespace RS.SimpleJsonUnity.Tests
 
             Assert.BeginTest("序列化别名 + toLowerCase 组合");
             {
-                var obj = new AliasSerializePoco { UserName = "王五", UserId = 789 };
-                
-                var strategy = new DefaultJsonSerializationStrategy(true, true);
-                string json = SimpleJson.SerializeObject(obj, strategy);
-                
+                var obj = new AliasSerializePoco { UserName = "王五",UserId = 789 };
+
+                var strategy = new DefaultJsonSerializationStrategy(true,true);
+                string json = SimpleJson.SerializeObject(obj,strategy);
+
                 Assert.IsTrue(json.Contains("user_name"),
                     "toLowerCase=true + alias 应该保持别名的原始大小写");
                 Assert.IsTrue(json.Contains("user_id"),
@@ -1829,19 +1954,19 @@ namespace RS.SimpleJsonUnity.Tests
 
             Assert.BeginTest("反序列化仍然支持所有别名");
             {
-                var strategy = new DefaultJsonSerializationStrategy(false, true);
-                
+                var strategy = new DefaultJsonSerializationStrategy(false,true);
+
                 string json1 = "{\"user_name\":\"from_alias1\"}";
-                var result1 = SimpleJson.DeserializeObject<AliasSerializePoco>(json1, strategy);
-                Assert.AreEqual("from_alias1", result1.UserName);
+                var result1 = SimpleJson.DeserializeObject<AliasSerializePoco>(json1,strategy);
+                Assert.AreEqual("from_alias1",result1.UserName);
 
                 string json2 = "{\"userName\":\"from_alias2\"}";
-                var result2 = SimpleJson.DeserializeObject<AliasSerializePoco>(json2, strategy);
-                Assert.AreEqual("from_alias2", result2.UserName);
+                var result2 = SimpleJson.DeserializeObject<AliasSerializePoco>(json2,strategy);
+                Assert.AreEqual("from_alias2",result2.UserName);
 
                 string json3 = "{\"UserName\":\"from_original\"}";
-                var result3 = SimpleJson.DeserializeObject<AliasSerializePoco>(json3, strategy);
-                Assert.AreEqual("from_original", result3.UserName);
+                var result3 = SimpleJson.DeserializeObject<AliasSerializePoco>(json3,strategy);
+                Assert.AreEqual("from_original",result3.UserName);
             }
 
             Assert.BeginTest("AcceptOriginalName=false 时反序列化行为");
@@ -1853,18 +1978,456 @@ namespace RS.SimpleJsonUnity.Tests
 
                 string jsonInput1 = "{\"api_code\":200}";
                 var result1 = SimpleJson.DeserializeObject<StrictAliasPoco>(jsonInput1);
-                Assert.AreEqual(200, result1.Code,
+                Assert.AreEqual(200,result1.Code,
                     "应接受别名 api_code");
 
                 string jsonInput2 = "{\"Code\":200}";
                 var result2 = SimpleJson.DeserializeObject<StrictAliasPoco>(jsonInput2);
-                Assert.AreEqual(0, result2.Code,
+                Assert.AreEqual(0,result2.Code,
                     "AcceptOriginalName=false 时不应接受原始名称 Code");
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // 24. 复杂多层嵌套类
+        // ──────────────────────────────────────────────────────────
+
+        private static void TestComplexNested()
+        {
+            // 测试 1：简单嵌套类（Address -> Person）
+            Assert.BeginTest("简单嵌套类：Address -> Person");
+            {
+                var person = new Person
+                {
+                    Name = "张三",
+                    Age = 30,
+                    HomeAddress = new Address
+                    {
+                        Street = "长安街1号",
+                        City = "北京",
+                        Country = "中国",
+                        ZipCode = "100000"
+                    },
+                    WorkAddress = new Address
+                    {
+                        Street = "中关村大街1号",
+                        City = "北京",
+                        Country = "中国",
+                        ZipCode = "100080"
+                    },
+                    PhoneNumbers = new List<string> { "13800138000","010-12345678" }
+                };
+
+                string json = SimpleJson.SerializeObject(person);
+                var result = SimpleJson.DeserializeObject<Person>(json);
+
+                Assert.AreEqual("张三",result.Name);
+                Assert.AreEqual(30,result.Age);
+                Assert.IsNotNull(result.HomeAddress);
+                Assert.AreEqual("长安街1号",result.HomeAddress.Street);
+                Assert.AreEqual("北京",result.HomeAddress.City);
+                Assert.IsNotNull(result.WorkAddress);
+                Assert.AreEqual("中关村大街1号",result.WorkAddress.Street);
+                Assert.AreEqual(2,result.PhoneNumbers.Count);
+                Assert.AreEqual("13800138000",result.PhoneNumbers[0]);
+            }
+
+            // 测试 2：三层嵌套（Person -> Department）
+            Assert.BeginTest("三层嵌套：Person -> Department");
+            {
+                var department = new Department
+                {
+                    Name = "研发部",
+                    Manager = new Person
+                    {
+                        Name = "李四",
+                        Age = 40,
+                        HomeAddress = new Address
+                        {
+                            Street = "经理街1号",
+                            City = "上海",
+                            Country = "中国",
+                            ZipCode = "200000"
+                        }
+                    },
+                    Employees = new List<Person>
+                    {
+                        new Person
+                        {
+                            Name = "王五",
+                            Age = 28,
+                            HomeAddress = new Address
+                            {
+                                Street = "员工路1号",
+                                City = "上海",
+                                Country = "中国",
+                                ZipCode = "200001"
+                            }
+                        },
+                        new Person
+                        {
+                            Name = "赵六",
+                            Age = 32,
+                            HomeAddress = new Address
+                            {
+                                Street = "员工路2号",
+                                City = "上海",
+                                Country = "中国",
+                                ZipCode = "200002"
+                            }
+                        }
+                    },
+                    MembersById = new Dictionary<string,Person>
+                    {
+                        { "emp001", new Person { Name = "员工001", Age = 25 } },
+                        { "emp002", new Person { Name = "员工002", Age = 27 } }
+                    }
+                };
+
+                string json = SimpleJson.SerializeObject(department);
+                var result = SimpleJson.DeserializeObject<Department>(json);
+
+                Assert.AreEqual("研发部",result.Name);
+                Assert.IsNotNull(result.Manager);
+                Assert.AreEqual("李四",result.Manager.Name);
+                Assert.AreEqual(2,result.Employees.Count);
+                Assert.AreEqual("王五",result.Employees[0].Name);
+                Assert.AreEqual("赵六",result.Employees[1].Name);
+                Assert.AreEqual(2,result.MembersById.Count);
+                Assert.IsTrue(result.MembersById.ContainsKey("emp001"));
+                Assert.AreEqual("员工001",result.MembersById["emp001"].Name);
+            }
+
+            // 测试 3：四层嵌套（Department -> Company）
+            Assert.BeginTest("四层嵌套：Department -> Company");
+            {
+                var company = new Company
+                {
+                    CompanyName = "科技公司",
+                    CEO = new Person
+                    {
+                        Name = "CEO张总",
+                        Age = 50,
+                        HomeAddress = new Address
+                        {
+                            Street = "CEO大街1号",
+                            City = "深圳",
+                            Country = "中国",
+                            ZipCode = "518000"
+                        }
+                    },
+                    Departments = new List<Department>
+                    {
+                        new Department
+                        {
+                            Name = "研发部",
+                            Manager = new Person { Name = "研发经理", Age = 38 },
+                            Employees = new List<Person>
+                            {
+                                new Person { Name = "研发员工1", Age = 28 },
+                                new Person { Name = "研发员工2", Age = 30 }
+                            }
+                        },
+                        new Department
+                        {
+                            Name = "市场部",
+                            Manager = new Person { Name = "市场经理", Age = 35 },
+                            Employees = new List<Person>
+                            {
+                                new Person { Name = "市场员工1", Age = 26 }
+                            }
+                        }
+                    },
+                    DepartmentsByName = new Dictionary<string,Department>
+                    {
+                        { "研发部", new Department { Name = "研发部" } },
+                        { "市场部", new Department { Name = "市场部" } }
+                    }
+                };
+
+                string json = SimpleJson.SerializeObject(company);
+                var result = SimpleJson.DeserializeObject<Company>(json);
+
+                Assert.AreEqual("科技公司",result.CompanyName);
+                Assert.IsNotNull(result.CEO);
+                Assert.AreEqual("CEO张总",result.CEO.Name);
+                Assert.AreEqual(2,result.Departments.Count);
+                Assert.AreEqual("研发部",result.Departments[0].Name);
+                Assert.AreEqual("市场部",result.Departments[1].Name);
+                Assert.AreEqual(2,result.DepartmentsByName.Count);
+                Assert.IsTrue(result.DepartmentsByName.ContainsKey("研发部"));
+            }
+
+            // 测试 4：循环引用检测
+            Assert.BeginTest("循环引用检测：Node -> Parent/Children");
+            {
+                var parent = new Node
+                {
+                    Id = "parent",
+                    Name = "父节点"
+                };
+
+                var child1 = new Node
+                {
+                    Id = "child1",
+                    Name = "子节点1",
+                    Parent = parent  // 循环引用
+                };
+
+                var child2 = new Node
+                {
+                    Id = "child2",
+                    Name = "子节点2",
+                    Parent = parent  // 循环引用
+                };
+
+                parent.Children = new List<Node> { child1,child2 };
+
+                // 序列化应该成功，循环引用字段会被序列化为 null
+                string json = SimpleJson.SerializeObject(parent);
+
+                // 反序列化
+                var result = SimpleJson.DeserializeObject<Node>(json);
+
+                Assert.AreEqual("父节点",result.Name);
+                Assert.IsNull(result.Parent,"根节点的 Parent 应该为 null");
+                Assert.IsNotNull(result.Children,"Children 列表应该存在");
+                Assert.AreEqual(2,result.Children.Count);
+
+                // 子节点的 Parent 应该为 null（循环引用被检测并序列化为 null）
+                Assert.IsNull(result.Children[0].Parent,"子节点的 Parent 应该为 null（循环引用检测）");
+                Assert.IsNull(result.Children[1].Parent,"子节点的 Parent 应该为 null（循环引用检测）");
+            }
+
+            // 测试 5：多层继承嵌套
+            Assert.BeginTest("多层继承嵌套：BaseEntity -> User -> Profile");
+            {
+                var user = new User
+                {
+                    Id = 1001,
+                    CreatedAt = new DateTime(2026,1,1,12,0,0,DateTimeKind.Utc),
+                    Username = "testuser",
+                    Email = "test@example.com",
+                    Profile = new Profile
+                    {
+                        Id = 2001,
+                        CreatedAt = new DateTime(2026,1,2,12,0,0,DateTimeKind.Utc),
+                        DisplayName = "测试用户",
+                        Tags = new List<string> { "VIP","活跃用户" },
+                        Location = new Address
+                        {
+                            Street = "用户街1号",
+                            City = "杭州",
+                            Country = "中国",
+                            ZipCode = "310000"
+                        }
+                    }
+                };
+
+                string json = SimpleJson.SerializeObject(user);
+                var result = SimpleJson.DeserializeObject<User>(json);
+
+                Assert.AreEqual(1001,result.Id);
+                Assert.AreEqual("testuser",result.Username);
+                Assert.AreEqual("test@example.com",result.Email);
+                Assert.IsNotNull(result.Profile);
+                Assert.AreEqual(2001,result.Profile.Id);
+                Assert.AreEqual("测试用户",result.Profile.DisplayName);
+                Assert.AreEqual(2,result.Profile.Tags.Count);
+                Assert.AreEqual("VIP",result.Profile.Tags[0]);
+                Assert.IsNotNull(result.Profile.Location);
+                Assert.AreEqual("杭州",result.Profile.Location.City);
+            }
+
+            // 测试 6：泛型嵌套类
+            Assert.BeginTest("泛型嵌套类：Container<Person>");
+            {
+                var container = new Container<Person>
+                {
+                    ContainerName = "人员容器",
+                    Data = new Person
+                    {
+                        Name = "容器内人员",
+                        Age = 35,
+                        HomeAddress = new Address
+                        {
+                            Street = "容器街1号",
+                            City = "成都",
+                            Country = "中国",
+                            ZipCode = "610000"
+                        }
+                    },
+                    Items = new List<Person>
+                    {
+                        new Person { Name = "人员1", Age = 25 },
+                        new Person { Name = "人员2", Age = 28 }
+                    }
+                };
+
+                string json = SimpleJson.SerializeObject(container);
+                var result = SimpleJson.DeserializeObject<Container<Person>>(json);
+
+                Assert.AreEqual("人员容器",result.ContainerName);
+                Assert.IsNotNull(result.Data);
+                Assert.AreEqual("容器内人员",result.Data.Name);
+                Assert.AreEqual(2,result.Items.Count);
+                Assert.AreEqual("人员1",result.Items[0].Name);
+            }
+
+            // 测试 7：带 JsonAlias 的嵌套类
+            Assert.BeginTest("带 JsonAlias 的嵌套类：ApiUser -> ApiProfile -> ApiTag");
+            {
+                var apiUser = new ApiUser
+                {
+                    UserId = 1001,
+                    UserName = "api_user",
+                    Profile = new ApiProfile
+                    {
+                        ProfileId = 2001,
+                        DisplayName = "API用户",
+                        Tags = new List<ApiTag>
+                        {
+                            new ApiTag { TagId = 1, TagName = "标签1" },
+                            new ApiTag { TagId = 2, TagName = "标签2" }
+                        }
+                    }
+                };
+
+                // 默认序列化（使用原始属性名）
+                string json1 = SimpleJson.SerializeObject(apiUser);
+                Assert.IsTrue(json1.Contains("UserId"),"默认应使用原始属性名 UserId");
+                Assert.IsTrue(json1.Contains("UserName"),"默认应使用原始属性名 UserName");
+
+                // 启用别名序列化
+                var strategy = new DefaultJsonSerializationStrategy(false,true);
+                string json2 = SimpleJson.SerializeObject(apiUser,strategy);
+                Assert.IsTrue(json2.Contains("user_id"),"启用别名后应使用 user_id");
+                Assert.IsTrue(json2.Contains("user_name"),"启用别名后应使用 user_name");
+                Assert.IsTrue(json2.Contains("profile_id"),"嵌套类中的别名也应生效");
+
+                // 反序列化测试（支持所有别名）
+                string jsonInput = @"{
+                    ""user_id"": 1002,
+                    ""userName"": ""api_user2"",
+                    ""Profile"": {
+                        ""profile_id"": 2002,
+                        ""display_name"": ""API用户2"",
+                        ""Tags"": [
+                            {""tag_id"": 3, ""tag_name"": ""标签3""}
+                        ]
+                    }
+                }";
+
+                var result = SimpleJson.DeserializeObject<ApiUser>(jsonInput);
+                Assert.AreEqual(1002,result.UserId);
+                Assert.AreEqual("api_user2",result.UserName);
+                Assert.IsNotNull(result.Profile);
+                Assert.AreEqual(2002,result.Profile.ProfileId);
+                Assert.AreEqual("API用户2",result.Profile.DisplayName);
+                Assert.AreEqual(1,result.Profile.Tags.Count);
+                Assert.AreEqual(3,result.Profile.Tags[0].TagId);
+                Assert.AreEqual("标签3",result.Profile.Tags[0].TagName);
+            }
+
+            // 测试 8：深度嵌套的性能测试
+            Assert.BeginTest("深度嵌套性能测试：100个部门，每个部门10个员工");
+            {
+                var company = new Company
+                {
+                    CompanyName = "大型企业",
+                    CEO = new Person { Name = "CEO",Age = 50 },
+                    Departments = new List<Department>()
+                };
+
+                for (int i = 0; i < 100; i++)
+                {
+                    var dept = new Department
+                    {
+                        Name = $"部门{i}",
+                        Manager = new Person { Name = $"经理{i}",Age = 35 + i % 10 },
+                        Employees = new List<Person>()
+                    };
+
+                    for (int j = 0; j < 10; j++)
+                    {
+                        dept.Employees.Add(new Person
+                        {
+                            Name = $"员工{i}_{j}",
+                            Age = 25 + j
+                        });
+                    }
+
+                    company.Departments.Add(dept);
+                }
+
+                // 序列化
+                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                string json = SimpleJson.SerializeObject(company);
+                stopwatch.Stop();
+                long serializeMs = stopwatch.ElapsedMilliseconds;
+
+                // 反序列化
+                stopwatch.Reset();
+                stopwatch.Start();
+                var result = SimpleJson.DeserializeObject<Company>(json);
+                stopwatch.Stop();
+                long deserializeMs = stopwatch.ElapsedMilliseconds;
+
+                Assert.AreEqual("大型企业",result.CompanyName);
+                Assert.AreEqual(100,result.Departments.Count);
+                Assert.AreEqual(10,result.Departments[0].Employees.Count);
+
+                // 性能断言（宽松，避免在不同环境下失败）
+                Assert.IsTrue(serializeMs < 5000,
+                    $"序列化100个部门应小于5秒，实际: {serializeMs}ms");
+                Assert.IsTrue(deserializeMs < 5000,
+                    $"反序列化100个部门应小于5秒，实际: {deserializeMs}ms");
+            }
+
+            // 测试 9：混合类型嵌套
+            Assert.BeginTest("混合类型嵌套：List<Dictionary<string, List<Person>>>");
+            {
+                var complexData = new List<Dictionary<string,List<Person>>>
+                {
+                    new Dictionary<string, List<Person>>
+                    {
+                        { "GroupA", new List<Person>
+                            {
+                                new Person { Name = "A1", Age = 20 },
+                                new Person { Name = "A2", Age = 22 }
+                            }
+                        },
+                        { "GroupB", new List<Person>
+                            {
+                                new Person { Name = "B1", Age = 25 }
+                            }
+                        }
+                    },
+                    new Dictionary<string, List<Person>>
+                    {
+                        { "GroupC", new List<Person>
+                            {
+                                new Person { Name = "C1", Age = 30 }
+                            }
+                        }
+                    }
+                };
+
+                string json = SimpleJson.SerializeObject(complexData);
+                var result = SimpleJson.DeserializeObject<List<Dictionary<string,List<Person>>>>(json);
+
+                Assert.AreEqual(2,result.Count);
+                Assert.AreEqual(2,result[0].Count);
+                Assert.IsTrue(result[0].ContainsKey("GroupA"));
+                Assert.AreEqual(2,result[0]["GroupA"].Count);
+                Assert.AreEqual("A1",result[0]["GroupA"][0].Name);
+                Assert.AreEqual(1,result[1].Count);
+                Assert.AreEqual("C1",result[1]["GroupC"][0].Name);
             }
         }
     }
 
-  
+
 }
 
 
