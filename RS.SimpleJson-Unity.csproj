@@ -1,0 +1,54 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>RS.SimpleJsonUnity</RootNamespace>
+    <BaseOutputPath>E:\MyProjects\RS.SimpleJson-Unity\bin</BaseOutputPath>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+    <Title>RS.SimpleJson-Unity</Title>
+    <Description>SimpleJson-Unity.cs 是一个专为Unity优化的轻量级JSON序列化/反序列化库，基于SimpleJson项目改进而来，特别针对Unity的AOT（Ahead-Of-Time）编译环境进行了优化。
+SimpleJson-Unity.cs is a lightweight JSON serialization/deserialization library optimized specifically for Unity, improved based on the SimpleJson project and specially optimized for Unity's AOT (Ahead-Of-Time) compilation environment.</Description>
+    <PackageProjectUrl>https://github.com/RS-Unity3D/RS.SimpleJson-Unity</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/RS-Unity3D/RS.SimpleJson-Unity</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>json;aot;unity;unity 3d</PackageTags>
+    <PackageOutputPath>E:\MyProjects\RS.SimpleJson-Unity\nuget package</PackageOutputPath>
+    <AssemblyVersion>2.0.1.0</AssemblyVersion>
+    <FileVersion>2.0.1.0</FileVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DefineConstants>$(DefineConstants);SIMPLE_JSON_READONLY_COLLECTIONS</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Assets\**" />
+    <Compile Remove="nuget package\**" />
+    <Compile Remove="Tests\**" />
+    <EmbeddedResource Remove="Assets\**" />
+    <EmbeddedResource Remove="nuget package\**" />
+    <EmbeddedResource Remove="Tests\**" />
+    <None Remove="Assets\**" />
+    <None Remove="nuget package\**" />
+    <None Remove="Tests\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="SimpleJson_Test.cs" />
+    <Compile Remove="SimpleJson_Test_Unity3d.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove=".gitignore" />
+    <None Remove="LICENSE" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+
+</Project>
