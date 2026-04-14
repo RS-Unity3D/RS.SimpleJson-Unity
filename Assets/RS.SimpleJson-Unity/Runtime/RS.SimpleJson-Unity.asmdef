@@ -1,0 +1,18 @@
+{
+    "name": "RS.SimpleJson-Unity",
+    "rootNamespace": "RS.SimpleJsonUnity",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [
+
+    ],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "SIMPLE_JSON_UNITY"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
