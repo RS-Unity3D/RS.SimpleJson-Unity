@@ -13,16 +13,20 @@
 ////    See the License for the specific language governing permissions and
 ////    limitations under the License.
 //// </copyright>
-//// <author>andyhebear, </author>
 //// <website>https://github.com/facebook-csharp-sdk/simple-json</website>
+/// RS.SimpleJson-Unity is a fork of the original SimpleJson library, with modifications to support Unity and additional features.
+/// <Author>andyhebear</Author>
+/// <website>https://github.com/RS-Unity3D/RS.SimpleJson-Unity</website>
 ////-----------------------------------------------------------------------
+////sgd:2026.4.30 Add Circular Reference Detection support
+////sgd:2026.4.13 Improve code quality
 ////sgd:2026.4.2 be compatible with simplejson v2.0.0 as much as possible
 ////sgd:2026.3.20 refactoring
 ////sgd:2026.2.20 support aot compiler
 ////sgd: 2025.12.15 support unity 3d
 ////sgd: 2025.11.10 support property To lower case
 ////sgd: 2025.10.1 support string key dictionary
-//// VERSION: 2.0.0
+//// VERSION: 2.1.0.0
 
 ////NOTE: uncomment the following line to make SimpleJson class internal.
 ////#define SIMPLE_JSON_INTERNAL
@@ -30,6 +34,8 @@
 //// NOTE: uncomment the following line to make JsonArray and JsonObject class internal.
 //#define SIMPLE_JSON_OBJARRAYINTERNAL
 
+////NOTE: uncomment the following line to make ReflectionUtils class public.
+//#define SIMPLE_JSON_REFLECTION_UTILS_PUBLIC
 
 //// NOTE: uncomment the following line to enable DataContract support.
 ////#define SIMPLE_JSON_DATACONTRACT
@@ -61,18 +67,18 @@
 //#define SIMPLE_JSON_PropertyIgnoreLowerCase
 
 
-//#if NET35 || NET20
-//#undef SIMPLE_JSON_READONLY_COLLECTIONS
-//#endif
+#if NET35 || NET20||NET40
+#undef SIMPLE_JSON_READONLY_COLLECTIONS
+#endif
 
 //#if NETFX_CORE
 //#define SIMPLE_JSON_TYPEINFO
 //#endif
 
 //NOTE:Unity support
-//#if SIMPLE_JSON_UNITY
-//using UnityEngine;
-//#endif
+#if SIMPLE_JSON_UNITY
+using UnityEngine;
+#endif
 
 
 // NET20
@@ -103,6 +109,26 @@ using UnityEngine;
 
 namespace RS.SimpleJsonUnity
 {
+    #region .NET 3.5
+#if NET20
+    // All these delegate are built-in .NET 3.5
+    // Comment/Remove them when compiling to .NET 3.5 to avoid ambiguity.
+
+    public delegate void Action();
+    public delegate void Action<T>(T arg);
+    public delegate void Action<T1, T2>(T1 arg1,T2 arg2);
+    public delegate void Action<T1, T2, T3>(T1 arg1,T2 arg2,T3 arg3);
+    public delegate void Action<T1, T2, T3, T4>(T1 arg1,T2 arg2,T3 arg3,T4 arg4);
+
+    public delegate TResult Func<TResult>();
+    public delegate TResult Func<T, TResult>(T arg);
+    public delegate TResult Func<T1, T2, TResult>(T1 arg1,T2 arg2);
+    public delegate TResult Func<T1, T2, T3, TResult>(T1 arg1,T2 arg2,T3 arg3);
+    public delegate TResult Func<T1, T2, T3, T4, TResult>(T1 arg1,T2 arg2,T3 arg3,T4 arg4);
+#elif NET35
+    
+#endif
+    #endregion
 
     // ──────────────────────────────────────────────────────────────
     // Attributes
@@ -150,27 +176,13 @@ namespace RS.SimpleJsonUnity
     }
     static class Constants
     {
-        public const string Iso8601Format = @"yyyy-MM-dd\THH\:mm\:ss.fffzzz";
-        public const string Iso8601FormatZ = @"yyyy-MM-dd\THH\:mm\:ss\Z";
-        public static readonly string[] Iso8601Formats =
-        {
-            Iso8601Format,
-            Iso8601FormatZ,
-            @"yyyy-MM-dd\THH\:mm\:ss.fffffffzzz",
-            @"yyyy-MM-dd\THH\:mm\:ss.ffffffzzz",
-            @"yyyy-MM-dd\THH\:mm\:ss.fffffzzz",
-            @"yyyy-MM-dd\THH\:mm\:ss.ffffzzz",
-            @"yyyy-MM-dd\THH\:mm\:ss.ffzzz",
-            @"yyyy-MM-dd\THH\:mm\:ss.fzzz",
-            @"yyyy-MM-dd\THH\:mm\:sszzz",
-            @"yyyy-MM-dd\THH\:mm\:ss.fffffff\Z",
-            @"yyyy-MM-dd\THH\:mm\:ss.ffffff\Z",
-            @"yyyy-MM-dd\THH\:mm\:ss.fffff\Z",
-            @"yyyy-MM-dd\THH\:mm\:ss.ffff\Z",
-            @"yyyy-MM-dd\THH\:mm\:ss.fff\Z",
-            @"yyyy-MM-dd\THH\:mm\:ss.ff\Z",
-            @"yyyy-MM-dd\THH\:mm\:ss.f\Z"
-        };
+        internal static readonly string[] Iso8601Format = new string[]
+                  {
+                     @"yyyy-MM-dd\THH:mm:ss.FFFFFFF\Z",
+                     @"yyyy-MM-dd\THH:mm:ss.FFFFFFFK",
+                     @"yyyy-MM-dd\THH:mm:ss\Z",
+                     @"yyyy-MM-dd\THH:mm:ssK"
+                 };
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -227,7 +239,7 @@ namespace RS.SimpleJsonUnity
             UseJsonAlias = false;
         }
 
-        public TypeCacheKey(Type type, bool toLowerCase, bool useJsonAlias)
+        public TypeCacheKey(Type type,bool toLowerCase,bool useJsonAlias)
         {
             Type = type;
             ToLowerCase = toLowerCase;
@@ -236,8 +248,8 @@ namespace RS.SimpleJsonUnity
 
         public bool Equals(TypeCacheKey other)
         {
-            return Type == other.Type 
-                && ToLowerCase == other.ToLowerCase 
+            return Type == other.Type
+                && ToLowerCase == other.ToLowerCase
                 && UseJsonAlias == other.UseJsonAlias;
         }
 
@@ -258,6 +270,114 @@ namespace RS.SimpleJsonUnity
             }
         }
     }
+
+#if NET20
+
+    /// <summary>
+    /// .NET 2.0 兼容的简易 HashSet<T>（核心功能：唯一元素、添加/移除/包含判断、遍历）
+    /// </summary>
+    /// <typeparam name="T">元素类型</typeparam>
+    public class HashSet<T> : IEnumerable<T>
+    {
+        // 底层存储：利用 Dictionary 的键唯一性
+        private readonly Dictionary<T,object> _dictionary;
+        // 占位值（复用一个对象，减少内存分配）
+        private static readonly object _placeholder = new object();
+
+        /// <summary>
+        /// 初始化空的 HashSet
+        /// </summary>
+        public HashSet()
+        {
+            _dictionary = new Dictionary<T,object>();
+        }
+
+        /// <summary>
+        /// 初始化并添加初始集合
+        /// </summary>
+        /// <param name="collection">初始元素集合</param>
+        public HashSet(IEnumerable<T> collection)
+        {
+            _dictionary = new Dictionary<T,object>();
+            foreach (T item in collection)
+            {
+                Add(item);
+            }
+        }
+
+        /// <summary>
+        /// 获取集合中元素的数量
+        /// </summary>
+        public int Count
+        {
+            get { return _dictionary.Count; }
+        }
+
+        /// <summary>
+        /// 添加元素（符合官方设计：新增成功返回 true，已存在返回 false）
+        /// </summary>
+        /// <param name="item">要添加的元素</param>
+        /// <returns>添加成功返回 true，元素已存在返回 false</returns>
+        public bool Add(T item)
+        {
+            if (_dictionary.ContainsKey(item))
+            {
+                return false; // 元素已存在，添加失败
+            }
+            _dictionary.Add(item,_placeholder);
+            return true; // 元素新增成功
+        }
+
+        /// <summary>
+        /// 移除元素（不存在则忽略）
+        /// </summary>
+        /// <param name="item">要移除的元素</param>
+        public void Remove(T item)
+        {
+            _dictionary.Remove(item);
+        }
+
+        /// <summary>
+        /// 判断元素是否存在
+        /// </summary>
+        /// <param name="item">要检查的元素</param>
+        /// <returns>存在返回 true，否则 false</returns>
+        public bool Contains(T item)
+        {
+            return _dictionary.ContainsKey(item);
+        }
+
+        /// <summary>
+        /// 清空所有元素
+        /// </summary>
+        public void Clear()
+        {
+            _dictionary.Clear();
+        }
+
+        /// <summary>
+        /// 实现枚举器，支持 foreach 遍历
+        /// </summary>
+        /// <returns>元素枚举器</returns>
+        public IEnumerator<T> GetEnumerator()
+        {
+            // 遍历 Dictionary 的键（即 HashSet 的元素）
+            foreach (T key in _dictionary.Keys)
+            {
+                yield return key;
+            }
+        }
+
+        /// <summary>
+        /// 非泛型枚举器（IEnumerable 接口实现）
+        /// </summary>
+        /// <returns>非泛型枚举器</returns>
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return GetEnumerator();
+        }
+    }
+#endif
     // ──────────────────────────────────────────────────────────────
     // ThreadSafeDictionary
     // ──────────────────────────────────────────────────────────────
@@ -446,7 +566,7 @@ namespace RS.SimpleJsonUnity
             return Remove(item.Key);
         }
     }
-    [GeneratedCode("simple-json","1.0.0")]
+    [GeneratedCode("simple-json","2.0.0")]
     /// <summary>
     /// 序列化/反序列化策略接口。
     /// 实现此接口可完全自定义 SimpleJson 的序列化行为。
@@ -511,7 +631,8 @@ namespace RS.SimpleJsonUnity
 
         // setter 缓存：反序列化 key 受 toLowerCase 影响，需要复合 key
         protected static readonly ThreadSafeDictionary<TypeCacheKey,
-            IDictionary<string,Action<object,object>>> _setterCache
+            IDictionary<string,Action<object,object>>>
+            _setterCache
             = new ThreadSafeDictionary<TypeCacheKey,
                 IDictionary<string,Action<object,object>>>();
 
@@ -524,6 +645,10 @@ namespace RS.SimpleJsonUnity
         protected static readonly System.Threading.ReaderWriterLockSlim
             _setterBuildLock = new System.Threading.ReaderWriterLockSlim();
 #endif
+
+
+        [ThreadStatic]
+        private static HashSet<object> t_serializationStack;
 
         public DefaultJsonSerializationStrategy()
         {
@@ -558,10 +683,17 @@ namespace RS.SimpleJsonUnity
         {
             PropertyInfo prop = type.GetProperty(name,PUBLIC_INSTANCE);
             if (prop != null) return prop;
-            
+
             FieldInfo field = type.GetField(name,PUBLIC_INSTANCE);
             if (field != null) return field;
 
+            return null;
+        }
+
+        private static string GetFirstAlias(JsonAliasAttribute aliasAttr)
+        {
+            if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                return aliasAttr.Aliases[0];
             return null;
         }
 
@@ -594,7 +726,7 @@ namespace RS.SimpleJsonUnity
                     try
                     {
                         return DateTime.ParseExact(str,
-                            Constants.Iso8601Formats,
+                            Constants.Iso8601Format,
                             CultureInfo.InvariantCulture,
                             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
                     }
@@ -602,10 +734,10 @@ namespace RS.SimpleJsonUnity
                     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
                         Guard.LogWarning(
-                            "CoerceValue: DateTime parse failed for \"" + str + 
+                            "CoerceValue: DateTime parse failed for \"" + str +
                             "\". " + ex.Message);
 #endif
-                        return Convert.ToDateTime(str, CultureInfo.InvariantCulture);
+                        return Convert.ToDateTime(str,CultureInfo.InvariantCulture);
                     }
                 }
             }
@@ -618,13 +750,13 @@ namespace RS.SimpleJsonUnity
                     try
                     {
                         return DateTimeOffset.ParseExact(str,
-                           Constants.Iso8601Formats,
+                           Constants.Iso8601Format,
                             CultureInfo.InvariantCulture,
                             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
                     }
                     catch (FormatException)
                     {
-                        return DateTimeOffset.Parse(str, CultureInfo.InvariantCulture);
+                        return DateTimeOffset.Parse(str,CultureInfo.InvariantCulture);
                     }
                 }
             }
@@ -643,9 +775,13 @@ namespace RS.SimpleJsonUnity
             {
                 if (val is string str)
                 {
-                    if (long.TryParse(str, out long ticks))
+                    if (long.TryParse(str,out long ticks))
                         return new TimeSpan(ticks);
-                    return TimeSpan.Parse(str, CultureInfo.InvariantCulture);
+#if NET20||NET35
+                    return TimeSpan.Parse(str);
+#else
+                    return TimeSpan.Parse(str,CultureInfo.InvariantCulture);
+#endif
                 }
                 if (val is long ticksValue)
                     return new TimeSpan(ticksValue);
@@ -744,16 +880,28 @@ namespace RS.SimpleJsonUnity
                     IList result;
                     if (targetType.IsArray)
                     {
-                        result = Array.CreateInstance(elementType, listVal.Count);
+                        result = Array.CreateInstance(elementType,listVal.Count);
                     }
                     else
                     {
-                        result = (IList)Activator.CreateInstance(targetType);
+                        try
+                        {
+                            result = (IList)Activator.CreateInstance(targetType);
+                        }
+                        catch (Exception ex)
+                        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                            Guard.LogError(
+                                "CoerceValue: Failed to create instance of \"" +
+                                targetType.FullName + "\". " + ex.Message);
+#endif
+                            return null;
+                        }
                     }
 
                     foreach (object item in listVal)
                     {
-                        object convertedItem = CoerceValue(item, elementType);
+                        object convertedItem = CoerceValue(item,elementType);
                         if (targetType.IsArray)
                         {
                             result[Convert.ToInt32(result.Count - 1)] = convertedItem;
@@ -768,7 +916,7 @@ namespace RS.SimpleJsonUnity
             }
 
             // 字典类型：IDictionary<K,V> 或 Dictionary<K,V>
-            if (typeof(IDictionary).IsAssignableFrom(targetType) && val is IDictionary<string, object> dictVal)
+            if (typeof(IDictionary).IsAssignableFrom(targetType) && val is IDictionary<string,object> dictVal)
             {
                 if (targetType.IsGenericType)
                 {
@@ -778,11 +926,25 @@ namespace RS.SimpleJsonUnity
                         Type keyType = args[0];
                         Type valueType = args[1];
 
-                        IDictionary result = (IDictionary)Activator.CreateInstance(targetType);
+                        IDictionary result;
+                        try
+                        {
+                            result = (IDictionary)Activator.CreateInstance(targetType);
+                        }
+                        catch (Exception ex)
+                        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                            Guard.LogError(
+                                "CoerceValue: Failed to create dictionary instance of \"" +
+                                targetType.FullName + "\". " + ex.Message);
+#endif
+                            return null;
+                        }
+
                         foreach (var kvp in dictVal)
                         {
-                            object dictKey = ConvertDictionaryKey(kvp.Key, keyType);
-                            object dictValue = CoerceValue(kvp.Value, valueType);
+                            object dictKey = ConvertDictionaryKey(kvp.Key,keyType);
+                            object dictValue = CoerceValue(kvp.Value,valueType);
                             result[dictKey] = dictValue;
                         }
                         return result;
@@ -818,11 +980,9 @@ namespace RS.SimpleJsonUnity
                 string key = p.Name;
                 if (useJsonAlias)
                 {
-                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(p);
-                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
-                    {
-                        key = aliasAttr.Aliases[0];
-                    }
+                    string alias = GetFirstAlias(GetAttribute<JsonAliasAttribute>(p));
+                    if (alias != null)
+                        key = alias;
                 }
 
                 getters[key] = obj => captured.GetValue(obj,null);
@@ -1059,7 +1219,7 @@ namespace RS.SimpleJsonUnity
         protected virtual IDictionary<string,Func<object,object>>
             GetOrBuildGetters(Type type)
         {
-            var cacheKey = new TypeCacheKey(type, toLowerCase, useJsonAliasForSerialization);
+            var cacheKey = new TypeCacheKey(type,toLowerCase,useJsonAliasForSerialization);
 
             _getterBuildLock.EnterReadLock();
             try
@@ -1075,7 +1235,7 @@ namespace RS.SimpleJsonUnity
                 IDictionary<string,Func<object,object>> cached;
                 if (_getterCache.TryGetValue(cacheKey,out cached)) return cached;
                 IDictionary<string,Func<object,object>> built;
-                try { built = BuildGetters(type, useJsonAliasForSerialization); }
+                try { built = BuildGetters(type,useJsonAliasForSerialization); }
                 catch (Exception ex)
                 {
 #if DEBUG
@@ -1143,16 +1303,18 @@ namespace RS.SimpleJsonUnity
             // DateTime
             if (input is DateTime)
             {
+
                 output = ((DateTime)input).ToUniversalTime().ToString(
-                    Constants.Iso8601Format,
+                    Constants.Iso8601Format[0],
                     CultureInfo.InvariantCulture);
+
                 return true;
             }
             // DateTimeOffset
             if (input is DateTimeOffset)
             {
                 output = ((DateTimeOffset)input).ToUniversalTime().ToString(
-                    Constants.Iso8601Format,
+                    Constants.Iso8601Format[0],
                     CultureInfo.InvariantCulture);
                 return true;
             }
@@ -1200,24 +1362,50 @@ namespace RS.SimpleJsonUnity
             // 防御：null 不应到达此处（TrySerializeNonPrimitiveObject 入口已处理）
             if (input == null) { output = null; return false; }
 
-            Type type = input.GetType();
-            var result = new JsonObject();
+            // 循环引用检测
+            if (t_serializationStack == null)
+                t_serializationStack = new HashSet<object>();
 
-            IDictionary<string,Func<object,object>> getters =
-                GetOrBuildGetters(type);
-
-            foreach (KeyValuePair<string,Func<object,object>> kvp in getters)
+            if (t_serializationStack.Contains(input))
             {
-                // BuildGetters 已根据 useJsonAliasForSerialization 处理了键名
-                // 当 useJsonAliasForSerialization=true 时，kvp.Key 已是别名
-                // 当 useJsonAliasForSerialization=false 时，kvp.Key 是原始属性名
-                string jsonKey = MapClrMemberNameToJsonFieldName(kvp.Key);
-                object val = kvp.Value(input);
-                result[jsonKey] = val;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                Guard.LogError(
+                    "TrySerializeUnknownTypes: Circular reference detected for type \"" +
+                    input.GetType().FullName + "\". Object will be serialized as null.");
+#endif
+                output = null;
+                return false;
             }
 
-            output = result;
-            return true;
+            bool wasAdded = false;
+            try
+            {
+                wasAdded = t_serializationStack.Add(input);
+
+                Type type = input.GetType();
+                var result = new JsonObject();
+
+                IDictionary<string,Func<object,object>> getters =
+                    GetOrBuildGetters(type);
+
+                foreach (KeyValuePair<string,Func<object,object>> kvp in getters)
+                {
+                    // BuildGetters 已根据 useJsonAliasForSerialization 处理了键名
+                    // 当 useJsonAliasForSerialization=true 时，kvp.Key 已是别名
+                    // 当 useJsonAliasForSerialization=false 时，kvp.Key 是原始属性名
+                    string jsonKey = MapClrMemberNameToJsonFieldName(kvp.Key);
+                    object val = kvp.Value(input);
+                    result[jsonKey] = val;
+                }
+
+                output = result;
+                return true;
+            }
+            finally
+            {
+                if (wasAdded)
+                    t_serializationStack.Remove(input);
+            }
         }
 
         // ── TryDeserializeObject ────────────────────────────────────
@@ -1257,12 +1445,12 @@ namespace RS.SimpleJsonUnity
                 {
                     dict = (IDictionary)Activator.CreateInstance(type);
                 }
-                catch (MissingMethodException ex)
+                catch (Exception ex)
                 {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
                     Guard.LogError(
-                        "TryDeserializeObject: \"" + type.FullName +
-                        "\" has no parameterless constructor. " + ex.Message);
+                        "TryDeserializeObject: Failed to create dictionary instance of \"" +
+                        type.FullName + "\". " + ex.Message);
 #endif
                     throw;
                 }
@@ -1299,12 +1487,12 @@ namespace RS.SimpleJsonUnity
             {
                 instance = Activator.CreateInstance(type);
             }
-            catch (MissingMethodException ex)
+            catch (Exception ex)
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
                 Guard.LogError(
-                    "TryDeserializeObject: Type \"" + type.FullName +
-                    "\" has no parameterless constructor. " + ex.Message);
+                    "TryDeserializeObject: Failed to create instance of \"" +
+                    type.FullName + "\". " + ex.Message);
 #endif
                 throw;
             }
@@ -1375,7 +1563,13 @@ namespace RS.SimpleJsonUnity
     // ReflectionUtils
     // ──────────────────────────────────────────────────────────────
 
-    internal static class ReflectionUtils
+    [GeneratedCode("reflection-utils","1.0.0")]
+#if SIMPLE_JSON_REFLECTION_UTILS_PUBLIC
+        public
+#else
+    internal
+#endif
+ static class ReflectionUtils
     {
         // ── SIMPLE_JSON_TYPEINFO 支持 ─────────────────────────────
 
@@ -1396,7 +1590,7 @@ namespace RS.SimpleJsonUnity
             return GetTypeInfo(type).IsGenericType;
         }
 
-        public static bool IsAssignableFrom(Type type1, Type type2)
+        public static bool IsAssignableFrom(Type type1,Type type2)
         {
             return GetTypeInfo(type1).IsAssignableFrom(GetTypeInfo(type2));
         }
@@ -1419,29 +1613,29 @@ namespace RS.SimpleJsonUnity
 #endif
         }
 
-        public static Attribute GetAttribute(MemberInfo info, Type type)
+        public static Attribute GetAttribute(MemberInfo info,Type type)
         {
 #if SIMPLE_JSON_TYPEINFO
             if (info == null || type == null || !info.IsDefined(type))
                 return null;
             return info.GetCustomAttribute(type);
 #else
-            if (info == null || type == null || !Attribute.IsDefined(info, type))
+            if (info == null || type == null || !Attribute.IsDefined(info,type))
                 return null;
-            return Attribute.GetCustomAttribute(info, type);
+            return Attribute.GetCustomAttribute(info,type);
 #endif
         }
 
-        public static Attribute GetAttribute(Type objectType, Type attributeType)
+        public static Attribute GetAttribute(Type objectType,Type attributeType)
         {
 #if SIMPLE_JSON_TYPEINFO
             if (objectType == null || attributeType == null || !objectType.GetTypeInfo().IsDefined(attributeType))
                 return null;
             return objectType.GetTypeInfo().GetCustomAttribute(attributeType);
 #else
-            if (objectType == null || attributeType == null || !Attribute.IsDefined(objectType, attributeType))
+            if (objectType == null || attributeType == null || !Attribute.IsDefined(objectType,attributeType))
                 return null;
-            return Attribute.GetCustomAttribute(objectType, attributeType);
+            return Attribute.GetCustomAttribute(objectType,attributeType);
 #endif
         }
 
@@ -1515,7 +1709,39 @@ namespace RS.SimpleJsonUnity
 #else
     public
 #endif
-    class JsonObject : Dictionary<string,object> { }
+    class JsonObject : Dictionary<string,object>
+    {
+        /// <summary>
+        /// Gets the <see cref="System.Object"/> at the specified index.
+        /// </summary>
+        /// <value></value>
+        public object this[int index]
+        {
+            get { return GetAtIndex(this,index); }
+        }
+
+        internal static object GetAtIndex(IDictionary<string,object> obj,int index)
+        {
+            if (obj == null)
+                throw new ArgumentNullException("obj");
+            if (index >= obj.Count)
+                throw new ArgumentOutOfRangeException("index");
+            int i = 0;
+            foreach (KeyValuePair<string,object> o in obj)
+                if (i++ == index) return o.Value;
+            return null;
+        }
+        /// <summary>
+        /// Returns a json <see cref="T:System.String"/> that represents the current <see cref="T:System.Object"/>.
+        /// </summary>
+        /// <returns>
+        /// A json <see cref="T:System.String"/> that represents the current <see cref="T:System.Object"/>.
+        /// </returns>
+        public override string ToString()
+        {
+            return SimpleJson.SerializeObject(this);
+        }
+    }
 
     // ──────────────────────────────────────────────────────────────
     // JsonArray  (IList<object> 别名，保持原库接口)
@@ -1526,7 +1752,28 @@ namespace RS.SimpleJsonUnity
 #else
     public
 #endif
-    class JsonArray : List<object> { }
+    class JsonArray : List<object>
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="JsonArray"/> class.
+        /// </summary>
+        public JsonArray() { }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="JsonArray"/> class.
+        /// </summary>
+        /// <param name="capacity">The capacity of the json array.</param>
+        public JsonArray(int capacity) : base(capacity) { }
+
+        /// <summary>
+        /// The json representation of the array.
+        /// </summary>
+        /// <returns>The json representation of the array.</returns>
+        public override string ToString()
+        {
+            return SimpleJson.SerializeObject(this) ?? string.Empty;
+        }
+    }
 
     /// <summary>
     /// 轻量 JSON 解析器。将 JSON 字符串解析为 .NET 对象树：
@@ -1989,11 +2236,11 @@ namespace RS.SimpleJsonUnity
                 _currentJsonSerializerStrategy = value;
             }
         }
-     
+
         public static void ClearReflectionCache()
         {
             // 兼容 .NET 2.0/4.0：不使用 is T x 模式匹配
-            DefaultJsonSerializationStrategy.ClearCache(); 
+            DefaultJsonSerializationStrategy.ClearCache();
         }
 
         // ── 序列化 ──────────────────────────────────────────────────
@@ -2305,13 +2552,13 @@ namespace RS.SimpleJsonUnity
                     try
                     {
                         return DateTime.ParseExact(str,
-                            Constants.Iso8601Formats,
+                            Constants.Iso8601Format,
                             CultureInfo.InvariantCulture,
                             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
                     }
                     catch (FormatException)
                     {
-                        return Convert.ToDateTime(str, CultureInfo.InvariantCulture);
+                        return Convert.ToDateTime(str,CultureInfo.InvariantCulture);
                     }
                 }
                 if (type == typeof(DateTimeOffset))
@@ -2319,20 +2566,24 @@ namespace RS.SimpleJsonUnity
                     try
                     {
                         return DateTimeOffset.ParseExact(str,
-                           Constants.Iso8601Formats,
+                           Constants.Iso8601Format,
                             CultureInfo.InvariantCulture,
                             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
                     }
                     catch (FormatException)
                     {
-                        return DateTimeOffset.Parse(str, CultureInfo.InvariantCulture);
+                        return DateTimeOffset.Parse(str,CultureInfo.InvariantCulture);
                     }
                 }
                 if (type == typeof(TimeSpan))
                 {
-                    if (long.TryParse(str, out long ticks))
+                    if (long.TryParse(str,out long ticks))
                         return new TimeSpan(ticks);
-                    return TimeSpan.Parse(str, CultureInfo.InvariantCulture);
+#if NET20 || NET35
+                    return TimeSpan.Parse(str);
+#else
+                    return TimeSpan.Parse(str,CultureInfo.InvariantCulture);
+#endif
                 }
                 if (type.IsEnum)
                 {
@@ -2458,8 +2709,13 @@ namespace RS.SimpleJsonUnity
             {
                 result = (IList)Activator.CreateInstance(type);
             }
-            catch
+            catch (Exception ex)
             {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                Guard.LogWarning(
+                    "DeserializeArray: Failed to create instance of \"" +
+                    type.FullName + "\". Falling back to List<object>. " + ex.Message);
+#endif
                 result = new List<object>();
             }
             foreach (object item in list)
@@ -2725,10 +2981,10 @@ namespace RS.SimpleJsonUnity
                 
                 if (useJsonAlias)
                 {
-                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(p);
-                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                    string alias = GetFirstAlias(GetAttribute<JsonAliasAttribute>(p));
+                    if (alias != null)
                     {
-                        jsonKey = aliasAttr.Aliases[0];
+                        jsonKey = alias;
                         if (toLowerCase)
                             jsonKey = ToCamelCaseStatic(jsonKey);
                     }
@@ -2758,10 +3014,10 @@ namespace RS.SimpleJsonUnity
                 
                 if (useJsonAlias)
                 {
-                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(f);
-                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                    string alias = GetFirstAlias(GetAttribute<JsonAliasAttribute>(f));
+                    if (alias != null)
                     {
-                        jsonKey = aliasAttr.Aliases[0];
+                        jsonKey = alias;
                         if (toLowerCase)
                             jsonKey = ToCamelCaseStatic(jsonKey);
                     }
@@ -2798,10 +3054,10 @@ namespace RS.SimpleJsonUnity
                 
                 if (useJsonAlias)
                 {
-                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(p);
-                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                    string alias = GetFirstAlias(GetAttribute<JsonAliasAttribute>(p));
+                    if (alias != null)
                     {
-                        jsonKey = aliasAttr.Aliases[0];
+                        jsonKey = alias;
                         if (toLowerCase)
                             jsonKey = ToCamelCaseStatic(jsonKey);
                     }
@@ -2834,10 +3090,10 @@ namespace RS.SimpleJsonUnity
                 
                 if (useJsonAlias)
                 {
-                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(f);
-                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                    string alias = GetFirstAlias(GetAttribute<JsonAliasAttribute>(f));
+                    if (alias != null)
                     {
-                        jsonKey = aliasAttr.Aliases[0];
+                        jsonKey = alias;
                         if (toLowerCase)
                             jsonKey = ToCamelCaseStatic(jsonKey);
                     }
