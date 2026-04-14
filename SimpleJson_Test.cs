@@ -373,9 +373,11 @@ namespace RS.SimpleJsonUnity.Tests
         {
             Assert.BeginTest("String round-trip");
             {
-                string json = SimpleJson.SerializeObject("Hello");
+                string json = SimpleJson.SerializeObject("你好");  
+                Console.WriteLine(json);
                 var result = SimpleJson.DeserializeObject<string>(json);
-                Assert.AreEqual("Hello",result);
+              
+                Assert.AreEqual("你好",result);
             }
 
             Assert.BeginTest("Int round-trip");
@@ -423,10 +425,11 @@ namespace RS.SimpleJsonUnity.Tests
             Assert.BeginTest("BasicPoco round-trip");
             {
                 var original = new BasicPoco
-                { Name = "Alice",Age = 30,Score = 9.5f,Height = 1.65 };
+                { Name = "Alice艾莉丝",Age = 30,Score = 9.5f,Height = 1.65 };
                 string json = SimpleJson.SerializeObject(original);
+                Console.WriteLine(json);
                 var result = SimpleJson.DeserializeObject<BasicPoco>(json);
-                Assert.AreEqual("Alice",result.Name);
+                Assert.AreEqual("Alice艾莉丝",result.Name);
                 Assert.AreEqual(30,result.Age);
                 Assert.AreEqual(9.5f,result.Score,1e-5f);
                 Assert.AreEqual(1.65,result.Height,1e-10);
