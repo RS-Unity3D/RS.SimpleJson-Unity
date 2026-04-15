@@ -28,6 +28,9 @@
 ////sgd: 2025.10.1 support string key dictionary
 //// VERSION: 2.2.0.0
 
+////NOTE:need AOT support,need #define SIMPLE_JSON_AOT
+//#define SIMPLE_JSON_AOT
+
 ////NOTE: uncomment the following line to make SimpleJson class internal.
 ////#define SIMPLE_JSON_INTERNAL
 
@@ -41,7 +44,7 @@
 //#define SIMPLE_JSON_REFLECTION_UTILS_PUBLIC
 
 //// NOTE: uncomment the following line to enable DataContract support.
-////#define SIMPLE_JSON_DATACONTRACT
+#define SIMPLE_JSON_DATACONTRACT
 
 //// NOTE: uncomment the following line to enable IReadOnlyCollection<T> and IReadOnlyList<T> support.
 //#define SIMPLE_JSON_READONLY_COLLECTIONS
@@ -65,15 +68,23 @@
 //
 #define SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE
 
-
-#if NET35 || NET20||NET40
-#undef SIMPLE_JSON_READONLY_COLLECTIONS
+#if NET20
+#undef SIMPLE_JSON_DATACONTRACT
 #endif
 
+#if NET20 || NET35 || NET40
+#undef SIMPLE_JSON_READONLY_COLLECTIONS
+#undef SIMPLE_JSON_AOT
+#endif
+//NOTE:.NET Framework not support AOT
+#if NET45 || NET46 || NET46 || NET47 || NET48
+#undef SIMPLE_JSON_AOT
+#endif
 //#if NETFX_CORE
 //#define SIMPLE_JSON_TYPEINFO
 //#endif
 
+//#define SIMPLE_JSON_UNITY
 //NOTE:Unity support
 #if SIMPLE_JSON_UNITY
 using UnityEngine;
@@ -105,8 +116,11 @@ using System.Text;
 
 #if SIMPLE_JSON_UNITY
 using UnityEngine;
-#endif
+ //#endif 
+namespace UnityEngine { 
 
+}
+#endif
 namespace RS.SimpleJsonUnity
 {
     #region .NET 2.0
@@ -128,12 +142,12 @@ namespace RS.SimpleJsonUnity
 #elif NET35
     
 #endif
-    #endregion
+#endregion
 
     // ──────────────────────────────────────────────────────────────
     // Attributes
     // ──────────────────────────────────────────────────────────────
-
+    #region Attributes
     [AttributeUsage(
         AttributeTargets.Property | AttributeTargets.Field,
         Inherited = true,AllowMultiple = false)]
@@ -174,8 +188,13 @@ namespace RS.SimpleJsonUnity
             get { return Aliases != null && Aliases.Length > 0 ? Aliases[0] : null; }
         }
     }
+    #endregion
+
     static class Constants
     {
+        /// <summary>
+        /// 日期时间的 ISO 8601 格式字符串数组，包含多种常见变体以提高兼容性。
+        /// </summary>
         internal static readonly string[] Iso8601Format = new string[]
                   {
                      @"yyyy-MM-dd\THH:mm:ss.FFFFFFF\Z",
@@ -188,7 +207,7 @@ namespace RS.SimpleJsonUnity
     // ──────────────────────────────────────────────────────────────
     // Guard
     // ──────────────────────────────────────────────────────────────
-
+    #region Guard
     internal static class Guard
     {
         public static void ArgumentNotNull(object argument,string argumentName)
@@ -217,15 +236,15 @@ namespace RS.SimpleJsonUnity
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         UnityEngine.Debug.LogError("[SimpleJson] " + message);
 #elif DEBUG
-        Console.WriteLine("[SimpleJson] ERROR: " + message);
+            Console.WriteLine("[SimpleJson] ERROR: " + message);
 #endif
         }
     }
-
+    #endregion
     // ──────────────────────────────────────────────────────────────
     // TypeCacheKey  （缓存复合 key，区分 ignoreLowerCaseDeserialization 和 useJsonAlias 状态）
     // ──────────────────────────────────────────────────────────────
-
+    #region TypeCacheKey
     public struct TypeCacheKey : IEquatable<TypeCacheKey>
     {
         public readonly Type Type;
@@ -270,6 +289,7 @@ namespace RS.SimpleJsonUnity
             }
         }
     }
+    #endregion
 
 #if NET20
 
@@ -381,7 +401,7 @@ namespace RS.SimpleJsonUnity
     // ──────────────────────────────────────────────────────────────
     // ThreadSafeDictionary
     // ──────────────────────────────────────────────────────────────
-
+    #region ThreadSafeDictionary
     public class ThreadSafeDictionary<TKey, TValue>
         : IDictionary<TKey,TValue>
     {
@@ -389,55 +409,55 @@ namespace RS.SimpleJsonUnity
             new Dictionary<TKey,TValue>();
 
 #if NET20 || SIMPLE_JSON_UNITY
-    private readonly object _lock = new object();
+        private readonly object _lock = new object();
 
-    public TValue this[TKey key]
-    {
-        get { lock (_lock) { return _dict[key]; } }
-        set { lock (_lock) { _dict[key] = value; } }
-    }
-    public bool TryGetValue(TKey key, out TValue value)
-    {
-        lock (_lock) { return _dict.TryGetValue(key, out value); }
-    }
-    public bool ContainsKey(TKey key)
-    {
-        lock (_lock) { return _dict.ContainsKey(key); }
-    }
-    public void Add(TKey key, TValue value)
-    {
-        lock (_lock) { _dict[key] = value; }
-    }
-    public bool Remove(TKey key)
-    {
-        lock (_lock) { return _dict.Remove(key); }
-    }
-    public void Clear()
-    {
-        lock (_lock) { _dict.Clear(); }
-    }
-    public int Count
-    {
-        get { lock (_lock) { return _dict.Count; } }
-    }
-    public ICollection<TKey> Keys
-    {
-        get { lock (_lock) { return new List<TKey>(_dict.Keys); } }
-    }
-    public ICollection<TValue> Values
-    {
-        get { lock (_lock) { return new List<TValue>(_dict.Values); } }
-    }
-    public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
-    {
-        List<KeyValuePair<TKey, TValue>> snapshot;
-        lock (_lock)
+        public TValue this[TKey key]
         {
-            snapshot = new List<KeyValuePair<TKey, TValue>>(_dict);
+            get { lock (_lock) { return _dict[key]; } }
+            set { lock (_lock) { _dict[key] = value; } }
         }
-        return snapshot.GetEnumerator();
-    }
-    IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
+        public bool TryGetValue(TKey key,out TValue value)
+        {
+            lock (_lock) { return _dict.TryGetValue(key,out value); }
+        }
+        public bool ContainsKey(TKey key)
+        {
+            lock (_lock) { return _dict.ContainsKey(key); }
+        }
+        public void Add(TKey key,TValue value)
+        {
+            lock (_lock) { _dict[key] = value; }
+        }
+        public bool Remove(TKey key)
+        {
+            lock (_lock) { return _dict.Remove(key); }
+        }
+        public void Clear()
+        {
+            lock (_lock) { _dict.Clear(); }
+        }
+        public int Count
+        {
+            get { lock (_lock) { return _dict.Count; } }
+        }
+        public ICollection<TKey> Keys
+        {
+            get { lock (_lock) { return new List<TKey>(_dict.Keys); } }
+        }
+        public ICollection<TValue> Values
+        {
+            get { lock (_lock) { return new List<TValue>(_dict.Values); } }
+        }
+        public IEnumerator<KeyValuePair<TKey,TValue>> GetEnumerator()
+        {
+            List<KeyValuePair<TKey,TValue>> snapshot;
+            lock (_lock)
+            {
+                snapshot = new List<KeyValuePair<TKey,TValue>>(_dict);
+            }
+            return snapshot.GetEnumerator();
+        }
+        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
 
 #else
         private readonly System.Threading.ReaderWriterLockSlim _lock =
@@ -566,1261 +586,43 @@ namespace RS.SimpleJsonUnity
             return Remove(item.Key);
         }
     }
-    [GeneratedCode("simple-json","2.0.0")]
-    /// <summary>
-    /// 序列化/反序列化策略接口。
-    /// 实现此接口可完全自定义 SimpleJson 的序列化行为。
-    /// </summary>
-#if SIMPLE_JSON_INTERNAL
-    internal
-#else
+    #endregion
+    // ──────────────────────────────────────────────────────────────
+    // ReflectionUtils
+    // ──────────────────────────────────────────────────────────────
+    #region ReflectionUtils
+    [GeneratedCode("reflection-utils","1.0.0")]
+#if SIMPLE_JSON_REFLECTION_UTILS_PUBLIC
     public
-#endif
-    interface IJsonSerializerStrategy
-    {
-        /// <summary>
-        /// 尝试将非基础类型对象序列化为可进一步处理的中间值。
-        /// </summary>
-        /// <param name="input">待序列化的对象。</param>
-        /// <param name="output">
-        /// 序列化结果：string / IDictionary&lt;string,object&gt; /
-        /// IList&lt;object&gt; / 基础类型之一。
-        /// </param>
-        /// <returns>成功返回 true，交由调用方继续处理 output；
-        /// 失败返回 false。</returns>
-        [SuppressMessage("Microsoft.Design","CA1007:UseGenericsWhereAppropriate",Justification = "Need to support .NET 2")]
-        bool TrySerializeNonPrimitiveObject(object input,out object output);
-
-        /// <summary>
-        /// 尝试将已解析的 JSON 值（IDictionary / IList / 基础类型）
-        /// 反序列化为目标类型的实例。
-        /// </summary>
-        /// <param name="value">JSON 解析器输出的原始值。</param>
-        /// <param name="type">目标 .NET 类型。</param>
-        /// <returns>成功则返回反序列化结果对象否则为null</returns>
-        object DeserializeObject(object value,Type type);
-        /// <summary>
-        /// 清理序列化堆栈（用于循环引用检测）。通常在每次序列化/反序列化操作完成后调用，以避免内存泄漏。
-        /// </summary>
-        void ClearSerializationStack();
-    }
-
-#if SIMPLE_JSON_INTERNAL
-    internal
 #else
-    public
+    internal
 #endif
-    class DefaultJsonSerializationStrategy : IJsonSerializerStrategy
+    static class ReflectionUtils
     {
-        // volatile 保证多线程可见性
-        // 注：在多线程中动态切换 ignoreLowerCaseForDeserialization 不是线程安全的。
-        // 建议在初始化阶段一次性设定，之后不再修改。
-        // ignoreLowerCaseForDeserialization=true 时：反序列化使用大小写无关匹配（OrdinalIgnoreCase），
-        // 序列化始终保留原始属性名大小写。
-        public volatile bool ignoreLowerCaseForDeserialization;
 
-        // 控制序列化时是否使用 JsonAlias 的第一个别名作为输出键名
-        // 默认 false（与 Newtonsoft.Json 行为一致）：序列化使用原始属性名
-        // 设为 true 时：序列化使用 Aliases[0] 作为键名（如果存在 JsonAlias）
-        public volatile bool useJsonAliasForSerialization;
-
-        protected const BindingFlags PUBLIC_INSTANCE =
-            BindingFlags.Public | BindingFlags.Instance;
-        protected const BindingFlags NONPUBLIC_INSTANCE =
+        public const BindingFlags PUBLIC_INSTANCE =
+       BindingFlags.Public | BindingFlags.Instance;
+        public const BindingFlags NONPUBLIC_INSTANCE =
             BindingFlags.NonPublic | BindingFlags.Instance;
-
-        // getter 缓存：序列化键名受 useJsonAlias 影响，需要复合 key
-        protected static readonly ThreadSafeDictionary<TypeCacheKey,
-            IDictionary<string,Func<object,object>>> _getterCache
-            = new ThreadSafeDictionary<TypeCacheKey,
-                IDictionary<string,Func<object,object>>>();
-
-        // setter 缓存：反序列化 key 受 ignoreLowerCase 影响，需要复合 key
-        protected static readonly ThreadSafeDictionary<TypeCacheKey,
-            IDictionary<string,Action<object,object>>>
-            _setterCache
-            = new ThreadSafeDictionary<TypeCacheKey,
-                IDictionary<string,Action<object,object>>>();
-
-#if NET20 || SIMPLE_JSON_UNITY
-    protected static readonly object _getterBuildLock = new object();
-    protected static readonly object _setterBuildLock = new object();
-#else
-        protected static readonly System.Threading.ReaderWriterLockSlim
-            _getterBuildLock = new System.Threading.ReaderWriterLockSlim();
-        protected static readonly System.Threading.ReaderWriterLockSlim
-            _setterBuildLock = new System.Threading.ReaderWriterLockSlim();
-#endif
-
-
-        [ThreadStatic]
-        private static HashSet<object> t_serializationStack;
-
-        public void ClearSerializationStack()
-        {
-            if (t_serializationStack != null)
-                t_serializationStack.Clear();
-        }
-
-        public DefaultJsonSerializationStrategy()
-        {
-#if SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE
-            ignoreLowerCaseForDeserialization = true;
-#else
-            ignoreLowerCaseForDeserialization = false;
-#endif
-            useJsonAliasForSerialization = false;
-        }
-
-        public DefaultJsonSerializationStrategy(bool ignoreLowerCaseDeserialization,bool useJsonAliasSerialization)
-        {
-            this.ignoreLowerCaseForDeserialization = ignoreLowerCaseDeserialization;
-            this.useJsonAliasForSerialization = useJsonAliasSerialization;
-        }
-
         // ── Attribute 辅助 ──────────────────────────────────────────
 
-        private static bool HasAttribute<T>(MemberInfo member) where T : Attribute
+        public static bool HasAttribute<T>(MemberInfo member) where T : Attribute
         {
             return member.GetCustomAttributes(typeof(T),true).Length > 0;
         }
 
-        private static T GetAttribute<T>(MemberInfo member) where T : Attribute
+        public static T GetAttribute<T>(MemberInfo member) where T : Attribute
         {
             object[] attrs = member.GetCustomAttributes(typeof(T),true);
             return attrs.Length > 0 ? (T)attrs[0] : null;
         }
 
-        private static string GetFirstAlias(JsonAliasAttribute aliasAttr)
+        public static string GetFirstAlias(JsonAliasAttribute aliasAttr)
         {
             if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
                 return aliasAttr.Aliases[0];
             return null;
         }
-
-        // ── MapClrMemberNameToJsonFieldName ─────────────────────────
-
-        public string MapClrMemberNameToJsonFieldName(string clrName)
-        {
-            if (clrName == null) return clrName;
-            // SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE 仅影响反序列化（大小写无关匹配），
-            // 序列化始终保留原始属性名
-            return clrName;
-        }
-
-        private static object CoerceValue(object val,Type targetType,IJsonSerializerStrategy strategy)
-        {
-            if (val == null) return null;
-            if (targetType.IsAssignableFrom(val.GetType())) return val;
-
-            // Nullable<T> 拆包：拆包后继续处理，SetValue 时 .NET 自动重新装箱
-            Type underlying = Nullable.GetUnderlyingType(targetType);
-            if (underlying != null)
-                targetType = underlying;
-
-            // DateTime类型：从string转换
-            if (targetType == typeof(DateTime))
-            {
-                if (val is string str)
-                {
-                    try
-                    {
-                        return DateTime.ParseExact(str,
-                            Constants.Iso8601Format,
-                            CultureInfo.InvariantCulture,
-                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-                    }
-                    catch (FormatException ex)
-                    {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                        Guard.LogWarning(
-                            "CoerceValue: DateTime parse failed for \"" + str +
-                            "\". " + ex.Message);
-#endif
-                        return Convert.ToDateTime(str,CultureInfo.InvariantCulture);
-                    }
-                }
-            }
-
-            // DateTimeOffset类型：从string转换
-            if (targetType == typeof(DateTimeOffset))
-            {
-                if (val is string str)
-                {
-                    try
-                    {
-                        return DateTimeOffset.ParseExact(str,
-                           Constants.Iso8601Format,
-                            CultureInfo.InvariantCulture,
-                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-                    }
-                    catch (FormatException)
-                    {
-                        return DateTimeOffset.Parse(str,CultureInfo.InvariantCulture);
-                    }
-                }
-            }
-
-            // Guid类型：从string转换
-            if (targetType == typeof(Guid))
-            {
-                if (val is string str)
-                {
-                    if (str.Length == 0) return default(Guid);
-                    return new Guid(str);
-                }
-            }
-
-            if (targetType == typeof(TimeSpan))
-            {
-                if (val is string str)
-                {
-                    if (long.TryParse(str,out long ticks))
-                        return new TimeSpan(ticks);
-#if NET20||NET35
-                    return TimeSpan.Parse(str);
-#else
-                    return TimeSpan.Parse(str,CultureInfo.InvariantCulture);
-#endif
-                }
-                if (val is long ticksValue)
-                    return new TimeSpan(ticksValue);
-            }
-
-            if (targetType.IsEnum)
-            {
-                if (val is string)
-                {
-#if !SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
-                    return Enum.Parse(targetType,(string)val,true);
-#else
-                try
-                {
-                    object numVal = Convert.ChangeType(
-                        val,
-                        Enum.GetUnderlyingType(targetType),
-                        CultureInfo.InvariantCulture);
-                    return Enum.ToObject(targetType, numVal);
-                }
-                catch (Exception ex)
-                {
-                    throw new InvalidCastException(
-                        "CoerceValue: Cannot parse enum \"" +
-                        targetType.FullName + "\" from \"" + val +
-                        "\" in AOT mode. Only numeric strings supported.", ex);
-                }
-#endif
-                }
-
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                // 浮点数赋值给 enum：小数部分将被截断
-                if (val is double || val is float || val is decimal)
-                {
-                    double dv = Convert.ToDouble(val,CultureInfo.InvariantCulture);
-                    if (dv != Math.Truncate(dv))
-                    {
-                        Guard.LogWarning(
-                            "CoerceValue: Assigning float " + dv +
-                            " to enum \"" + targetType.FullName +
-                            "\". Decimal part truncated.");
-                    }
-                }
-#endif
-                double enumVal = Convert.ToDouble(val,CultureInfo.InvariantCulture);
-                enumVal = Math.Truncate(enumVal);
-                return Enum.ToObject(targetType,
-                    Convert.ChangeType(enumVal,
-                        Enum.GetUnderlyingType(targetType),
-                        CultureInfo.InvariantCulture));
-            }
-
-            // char类型：从string转换时取第一个字符
-            if (targetType == typeof(char))
-            {
-                if (val is string str)
-                {
-                    if (str.Length > 0)
-                        return str[0];
-                    return default(char);
-                }
-            }
-
-            // 整数类型：确保截断而不是四舍五入
-            if (targetType == typeof(int) || targetType == typeof(uint) ||
-                targetType == typeof(short) || targetType == typeof(ushort) ||
-                targetType == typeof(long) || targetType == typeof(ulong) ||
-                targetType == typeof(byte) || targetType == typeof(sbyte))
-            {
-                if (val is double || val is float || val is decimal)
-                {
-                    double dv = Convert.ToDouble(val,CultureInfo.InvariantCulture);
-                    return Convert.ChangeType(
-                        Math.Truncate(dv),
-                        targetType,
-                        CultureInfo.InvariantCulture);
-                }
-            }
-
-            // 集合类型：IList<T> 或 List<T>
-            if (typeof(IList).IsAssignableFrom(targetType) && val is IList<object> listVal)
-            {
-                Type elementType = null;
-                if (targetType.IsArray)
-                {
-                    elementType = targetType.GetElementType();
-                }
-                else if (targetType.IsGenericType)
-                {
-                    Type[] args = targetType.GetGenericArguments();
-                    if (args.Length == 1) elementType = args[0];
-                }
-
-                if (elementType != null)
-                {
-                    IList result;
-                    if (targetType.IsArray)
-                    {
-                        result = Array.CreateInstance(elementType,listVal.Count);
-                    }
-                    else
-                    {
-                        try
-                        {
-                            result = (IList)Activator.CreateInstance(targetType);
-                        }
-                        catch (MissingMethodException)
-                        {
-                            // 接口类型 fallback 到 List<elementType>
-                            Type fallbackType = typeof(List<>).MakeGenericType(elementType);
-                            result = (IList)Activator.CreateInstance(fallbackType);
-                        }
-                        catch (Exception ex)
-                        {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                            Guard.LogError(
-                                "CoerceValue: Failed to create instance of \"" +
-                                targetType.FullName + "\". " + ex.Message);
-#endif
-                            return null;
-                        }
-                    }
-
-                    int idx = 0;
-                    foreach (object item in listVal)
-                    {
-                        object convertedItem = CoerceValue(item,elementType,strategy);
-                        if (targetType.IsArray)
-                        {
-                            result[idx] = convertedItem;
-                        }
-                        else
-                        {
-                            result.Add(convertedItem);
-                        }
-                        idx++;
-                    }
-                    return result;
-                }
-            }
-
-            // 字典类型：IDictionary<K,V> 或 Dictionary<K,V>
-            if (typeof(IDictionary).IsAssignableFrom(targetType) && val is IDictionary<string,object> dictVal)
-            {
-                if (targetType.IsGenericType)
-                {
-                    Type[] args = targetType.GetGenericArguments();
-                    if (args.Length == 2)
-                    {
-                        Type keyType = args[0];
-                        Type valueType = args[1];
-
-                        IDictionary result;
-                        try
-                        {
-                            result = (IDictionary)Activator.CreateInstance(targetType);
-                        }
-                        catch (Exception ex)
-                        {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                            Guard.LogError(
-                                "CoerceValue: Failed to create dictionary instance of \"" +
-                                targetType.FullName + "\". " + ex.Message);
-#endif
-                            return null;
-                        }
-
-                        foreach (var kvp in dictVal)
-                        {
-                            object dictKey = ConvertDictionaryKey(kvp.Key,keyType);
-                            object dictValue = CoerceValue(kvp.Value,valueType,strategy);
-                            result[dictKey] = dictValue;
-                        }
-                        return result;
-                    }
-                }
-            }
-
-            // POCO 类型：IDictionary<string,object> → 目标 POCO（递归反序列化）
-            // 当 JSON 解析器将嵌套对象解析为 IDictionary<string,object>，
-            // 但目标类型不是字典类型时，需要递归调用 DeserializeObject 完成反序列化。
-            // 这是对原始 SimpleJson 中 TryDeserializeObject 递归反序列化逻辑的补充。
-            // 仅对可实例化的 POCO 类类型生效，排除 string/原始类型/值类型/字典/列表
-            IDictionary<string,object> pocoDict = val as IDictionary<string,object>;
-            if (pocoDict != null
-                && targetType.IsClass
-                && targetType != typeof(string)
-                && !typeof(IDictionary).IsAssignableFrom(targetType)
-                && !typeof(IList).IsAssignableFrom(targetType))
-            {
-                //return SimpleJson.DeserializeObject(pocoDict,targetType,SimpleJson.CurrentJsonSerializerStrategy);
-                return strategy.DeserializeObject(pocoDict,targetType);
-            }
-
-            // 通用转换：失败直接抛，由 setter 统一 catch + LogWarning（单点日志）
-            return Convert.ChangeType(val,targetType,CultureInfo.InvariantCulture);
-        }
-
-        // ── BuildGetters ────────────────────────────────────────────
-
-        private static IDictionary<string,Func<object,object>>
-            BuildGetters(Type type,bool useJsonAlias,IJsonSerializerStrategy strategy)
-        {
-            var getters = new Dictionary<string,Func<object,object>>();
-            // seen：按成员名去重，优先最派生版本（GetProperties 返回顺序保证）
-            // C# 不允许同名属性和字段，seen 跨两者去重是安全的
-            var seen = new HashSet<string>();
-
-            // public 属性
-            foreach (PropertyInfo p in type.GetProperties(PUBLIC_INSTANCE))
-            {
-                if (p.GetIndexParameters().Length > 0) continue;
-                if (!p.CanRead) continue;
-                if (seen.Contains(p.Name)) continue;
-                if (HasAttribute<JsonIgnoreAttribute>(p)) continue;
-
-                seen.Add(p.Name);
-                PropertyInfo captured = p;
-
-                string key = p.Name;
-                if (useJsonAlias)
-                {
-                    string alias = GetFirstAlias(GetAttribute<JsonAliasAttribute>(p));
-                    if (alias != null)
-                        key = alias;
-                }
-
-                getters[key] = obj => captured.GetValue(obj,null);
-            }
-
-            // public 字段
-            foreach (FieldInfo f in type.GetFields(PUBLIC_INSTANCE))
-            {
-                if (seen.Contains(f.Name)) continue;
-                if (HasAttribute<JsonIgnoreAttribute>(f)) continue;
-
-                seen.Add(f.Name);
-                FieldInfo captured = f;
-
-                string key = f.Name;
-                if (useJsonAlias)
-                {
-                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(f);
-                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
-                    {
-                        key = aliasAttr.Aliases[0];
-                    }
-                }
-
-                getters[key] = obj => captured.GetValue(obj);
-            }
-
-            // non-public：仅 JsonInclude，JsonIgnore 优先
-            foreach (PropertyInfo p in type.GetProperties(NONPUBLIC_INSTANCE))
-            {
-                if (p.GetIndexParameters().Length > 0) continue;
-                if (!p.CanRead) continue;
-                if (seen.Contains(p.Name)) continue;
-                if (!HasAttribute<JsonIncludeAttribute>(p)) continue;
-                if (HasAttribute<JsonIgnoreAttribute>(p)) continue;
-
-                seen.Add(p.Name);
-                PropertyInfo captured = p;
-
-                string key = p.Name;
-                if (useJsonAlias)
-                {
-                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(p);
-                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
-                    {
-                        key = aliasAttr.Aliases[0];
-                    }
-                }
-
-                getters[key] = obj => captured.GetValue(obj,null);
-            }
-
-            foreach (FieldInfo f in type.GetFields(NONPUBLIC_INSTANCE))
-            {
-                if (seen.Contains(f.Name)) continue;
-                if (!HasAttribute<JsonIncludeAttribute>(f)) continue;
-                if (HasAttribute<JsonIgnoreAttribute>(f)) continue;
-
-                seen.Add(f.Name);
-                FieldInfo captured = f;
-
-                string key = f.Name;
-                if (useJsonAlias)
-                {
-                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(f);
-                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
-                    {
-                        key = aliasAttr.Aliases[0];
-                    }
-                }
-
-                getters[key] = obj => captured.GetValue(obj);
-            }
-
-            return getters;
-        }
-
-        // ── BuildSetters ────────────────────────────────────────────
-
-        private static IDictionary<string,Action<object,object>>
-            BuildSetters(Type type,bool ignoreLowerCase,IJsonSerializerStrategy strategy)
-        {
-            // ignoreLowerCase=true 时使用大小写无关比较器，实现反序列化忽略大小写
-            var setters = ignoreLowerCase
-                ? new Dictionary<string,Action<object,object>>(StringComparer.OrdinalIgnoreCase)
-                : new Dictionary<string,Action<object,object>>();
-            var seen = new HashSet<string>();
-
-            Action<MemberInfo,Type,Action<object,object>> register =
-                (member,memberType,rawSetter) =>
-                {
-                    if (HasAttribute<JsonIgnoreAttribute>(member)) return;
-                    if (seen.Contains(member.Name)) return;
-                    seen.Add(member.Name);
-
-                    // 带类型转换保护的 setter
-                    Type capturedType = memberType;
-                    MemberInfo capturedMember = member;
-                    Action<object,object> safeSetter = (obj,val) =>
-                    {
-                        try
-                        {
-                            rawSetter(obj,CoerceValue(val,capturedType,strategy));
-                        }
-                        catch (Exception ex)
-                        {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                            Guard.LogWarning(
-                            "SetValue: Cannot assign to \"" +
-                            capturedMember.DeclaringType.FullName + "." +
-                            capturedMember.Name + "\". " + ex.Message);
-#endif
-                            // 跳过赋值，保留默认值
-                        }
-                    };
-
-                    // setter key 始终使用原始属性名；
-                    // ignoreLowerCase 的效果由字典的 OrdinalIgnoreCase 比较器实现
-                    string originalKey = member.Name;
-
-                    JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(member);
-                    if (aliasAttr != null)
-                    {
-                        foreach (string alias in aliasAttr.Aliases)
-                        {
-                            setters[alias] = safeSetter;
-                        }
-                        if (aliasAttr.AcceptOriginalName)
-                        {
-                            setters[originalKey] = safeSetter;
-                        }
-                    }
-                    else
-                    {
-                        setters[originalKey] = safeSetter;
-                    }
-                };
-
-            // public 属性
-            foreach (PropertyInfo p in type.GetProperties(PUBLIC_INSTANCE))
-            {
-                if (p.GetIndexParameters().Length > 0) continue;
-                if (!p.CanWrite) continue;
-                PropertyInfo captured = p;
-                register(p,p.PropertyType,
-                    (obj,val) => captured.SetValue(obj,val,null));
-            }
-
-            // public 字段
-            foreach (FieldInfo f in type.GetFields(PUBLIC_INSTANCE))
-            {
-                FieldInfo captured = f;
-                register(f,f.FieldType,
-                    (obj,val) => captured.SetValue(obj,val));
-            }
-
-            // non-public：仅 JsonInclude
-            foreach (PropertyInfo p in type.GetProperties(NONPUBLIC_INSTANCE))
-            {
-                if (p.GetIndexParameters().Length > 0) continue;
-                if (!p.CanWrite) continue;
-                if (!HasAttribute<JsonIncludeAttribute>(p)) continue;
-                PropertyInfo captured = p;
-                register(p,p.PropertyType,
-                    (obj,val) => captured.SetValue(obj,val,null));
-            }
-
-            foreach (FieldInfo f in type.GetFields(NONPUBLIC_INSTANCE))
-            {
-                if (!HasAttribute<JsonIncludeAttribute>(f)) continue;
-                FieldInfo captured = f;
-                register(f,f.FieldType,
-                    (obj,val) => captured.SetValue(obj,val));
-            }
-
-            return setters;
-        }
-
-        // ── GetOrBuild 缓存访问 ─────────────────────────────────────
-
-#if NET20 || SIMPLE_JSON_UNITY
-
-    protected virtual IDictionary<string, Func<object, object>>
-        GetOrBuildGetters(Type type)
-    {
-        var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization, useJsonAliasForSerialization);
-        IDictionary<string, Func<object, object>> cached;
-        if (_getterCache.TryGetValue(cacheKey, out cached)) return cached;
-        lock (_getterBuildLock)
-        {
-            if (_getterCache.TryGetValue(cacheKey, out cached)) return cached;
-            IDictionary<string, Func<object, object>> built;
-            try   { built = BuildGetters(type, useJsonAliasForSerialization,this); }
-            catch (Exception ex)
-            {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                Guard.LogError("GetOrBuildGetters: Failed for \"" +
-                    type.FullName + "\". " + ex.Message);
-#endif
-                // 不写缓存，允许下次重试
-                return new Dictionary<string, Func<object, object>>();
-            }
-            _getterCache[cacheKey] = built;
-            return built;
-        }
-    }
-
-    protected virtual IDictionary<string, Action<object, object>>
-        GetOrBuildSetters(Type type)
-    {
-        var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization);
-        IDictionary<string, Action<object, object>> cached;
-        if (_setterCache.TryGetValue(cacheKey, out cached)) return cached;
-        lock (_setterBuildLock)
-        {
-            if (_setterCache.TryGetValue(cacheKey, out cached)) return cached;
-            IDictionary<string, Action<object, object>> built;
-            try   { built = BuildSetters(type,ignoreLowerCaseForDeserialization,this); }
-            catch (Exception ex)
-            {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                Guard.LogError("GetOrBuildSetters: Failed for \"" +
-                    type.FullName + "\". " + ex.Message);
-#endif
-                return new Dictionary<string, Action<object, object>>();
-            }
-            _setterCache[cacheKey] = built;
-            return built;
-        }
-    }
-
-#else
-
-        protected virtual IDictionary<string,Func<object,object>>
-            GetOrBuildGetters(Type type)
-        {
-            var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization,useJsonAliasForSerialization);
-
-            _getterBuildLock.EnterReadLock();
-            try
-            {
-                IDictionary<string,Func<object,object>> cached;
-                if (_getterCache.TryGetValue(cacheKey,out cached)) return cached;
-            }
-            finally { _getterBuildLock.ExitReadLock(); }
-
-            _getterBuildLock.EnterWriteLock();
-            try
-            {
-                IDictionary<string,Func<object,object>> cached;
-                if (_getterCache.TryGetValue(cacheKey,out cached)) return cached;
-                IDictionary<string,Func<object,object>> built;
-                try { built = BuildGetters(type,useJsonAliasForSerialization,this); }
-                catch (Exception ex)
-                {
-#if DEBUG
-                    Guard.LogError("GetOrBuildGetters: Failed for \"" +
-      type.FullName + "\". " + ex.Message);
-#endif
-                    return new Dictionary<string,Func<object,object>>();
-                }
-                _getterCache[cacheKey] = built;
-                return built;
-            }
-            finally { _getterBuildLock.ExitWriteLock(); }
-        }
-
-        protected virtual IDictionary<string,Action<object,object>>
-            GetOrBuildSetters(Type type)
-        {
-            var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization);
-
-            _setterBuildLock.EnterReadLock();
-            try
-            {
-                IDictionary<string,Action<object,object>> cached;
-                if (_setterCache.TryGetValue(cacheKey,out cached)) return cached;
-            }
-            finally { _setterBuildLock.ExitReadLock(); }
-
-            _setterBuildLock.EnterWriteLock();
-            try
-            {
-                IDictionary<string,Action<object,object>> cached;
-                if (_setterCache.TryGetValue(cacheKey,out cached)) return cached;
-                IDictionary<string,Action<object,object>> built;
-                try { built = BuildSetters(type,ignoreLowerCaseForDeserialization,this); }
-                catch (Exception ex)
-                {
-#if DEBUG
-                    Guard.LogError("GetOrBuildSetters: Failed for \"" +
-                        type.FullName + "\". " + ex.Message);
-#endif
-                    return new Dictionary<string,Action<object,object>>();
-                }
-                _setterCache[cacheKey] = built;
-                return built;
-            }
-            finally { _setterBuildLock.ExitWriteLock(); }
-        }
-
-#endif  // NET20 || SIMPLE_JSON_UNITY
-
-        // ── TrySerializeNonPrimitiveObject ──────────────────────────
-
-        public virtual bool TrySerializeNonPrimitiveObject(
-            object input,out object output)
-        {
-            return TrySerializeKnownTypes(input,out output)
-                || TrySerializeUnknownTypes(input,out output);
-        }
-
-        protected virtual bool TrySerializeKnownTypes(
-            object input,out object output)
-        {
-            if (input == null) { output = null; return false; }
-
-            // DateTime
-            if (input is DateTime)
-            {
-
-                output = ((DateTime)input).ToUniversalTime().ToString(
-                    Constants.Iso8601Format[0],
-                    CultureInfo.InvariantCulture);
-
-                return true;
-            }
-            // DateTimeOffset
-            if (input is DateTimeOffset)
-            {
-                output = ((DateTimeOffset)input).ToUniversalTime().ToString(
-                    Constants.Iso8601Format[0],
-                    CultureInfo.InvariantCulture);
-                return true;
-            }
-            // Guid
-            if (input is Guid)
-            {
-                output = ((Guid)input).ToString("D",
-                    CultureInfo.InvariantCulture);
-                return true;
-            }
-            // char
-            if (input is char)
-            {
-                output = ((char)input).ToString();
-                return true;
-            }
-            if (input is TimeSpan)
-            {
-                output = ((TimeSpan)input).Ticks.ToString(CultureInfo.InvariantCulture);
-                return true;
-            }
-            // Uri
-            if (input is Uri)
-            {
-                output = ((Uri)input).ToString();
-                return true;
-            }
-            // Enum：序列化为底层数值（与 LitJSON 默认行为一致）
-            if (input is Enum)
-            {
-                output = Convert.ChangeType(
-                    input,
-                    Enum.GetUnderlyingType(input.GetType()),
-                    CultureInfo.InvariantCulture);
-                return true;
-            }
-
-            output = null;
-            return false;
-        }
-
-        protected virtual bool TrySerializeUnknownTypes(
-            object input,out object output)
-        {
-            if (input == null) { output = null; return false; }
-
-            Type type = input.GetType();
-
-            if (type.IsPrimitive || type == typeof(string) || type == typeof(decimal))
-            {
-                output = null;
-                return false;
-            }
-
-            // 集合类型（IDictionary / IList）由 SerializeValue 主流程处理，
-            // 不应被当作 POCO 枚举属性（否则 List<int> 会输出 {"capacity":4,"count":3}）
-            if (input is IDictionary || input is IList)
-            {
-                output = null;
-                return false;
-            }
-
-            if (t_serializationStack == null)
-                t_serializationStack = new HashSet<object>();
-
-            if (t_serializationStack.Contains(input))
-            {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                Guard.LogError(
-                    "TrySerializeUnknownTypes: Circular reference detected for type \"" +
-                    input.GetType().FullName + "\". Object will be serialized as null.");
-#endif
-                output = null;
-                return true;
-            }
-
-            t_serializationStack.Add(input);
-
-            var result = new JsonObject();
-
-            IDictionary<string,Func<object,object>> getters =
-                GetOrBuildGetters(type);
-
-            foreach (KeyValuePair<string,Func<object,object>> kvp in getters)
-            {
-                string jsonKey = MapClrMemberNameToJsonFieldName(kvp.Key);
-                object val = kvp.Value(input);
-
-                if (val != null)
-                {
-                    object exportValue;
-                    if (TrySerializeNonPrimitiveObject(val,out exportValue))
-                        val = exportValue;
-                }
-
-                result[jsonKey] = val;
-            }
-
-            output = result;
-            return true;
-        }
-
-        // ── TryDeserializeObject ────────────────────────────────────
-        public  object DeserializeObject(
-       object value,Type type)
-        {
-            if (type == null || value == null) return value;
-            IJsonSerializerStrategy jsonSerializerStrategy = this;
-            // string → 目标类型
-            string str = value as string;
-            if (str != null)
-            {
-                if (type == typeof(string)) return str;
-                if (type == typeof(Guid))
-                {
-                    if (str.Length == 0) return default(Guid);
-                    return new Guid(str);
-                }
-                if (type == typeof(Uri)) return new Uri(str);
-                if (type == typeof(char))
-                {
-                    if (str.Length == 1) return str[0];
-                    if (str.Length > 1)
-                    {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                        Guard.LogWarning(
-                            "DeserializeObject: string \"" + str +
-                            "\" truncated to char '" + str[0] + "'.");
-#endif
-                        return str[0];
-                    }
-                    return default(char);
-                }
-                if (type == typeof(DateTime))
-                {
-                    try
-                    {
-                        return DateTime.ParseExact(str,
-                            Constants.Iso8601Format,
-                            CultureInfo.InvariantCulture,
-                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-                    }
-                    catch (FormatException)
-                    {
-                        return Convert.ToDateTime(str,CultureInfo.InvariantCulture);
-                    }
-                }
-                if (type == typeof(DateTimeOffset))
-                {
-                    try
-                    {
-                        return DateTimeOffset.ParseExact(str,
-                           Constants.Iso8601Format,
-                            CultureInfo.InvariantCulture,
-                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-                    }
-                    catch (FormatException)
-                    {
-                        return DateTimeOffset.Parse(str,CultureInfo.InvariantCulture);
-                    }
-                }
-                if (type == typeof(TimeSpan))
-                {
-                    if (long.TryParse(str,out long ticks))
-                        return new TimeSpan(ticks);
-#if NET20 || NET35
-                    return TimeSpan.Parse(str);
-#else
-                    return TimeSpan.Parse(str,CultureInfo.InvariantCulture);
-#endif
-                }
-                if (type.IsEnum)
-                {
-#if !SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
-                    return Enum.Parse(type,str,true);
-#else
-                return Enum.ToObject(type,
-                    Convert.ChangeType(str,
-                        Enum.GetUnderlyingType(type),
-                        CultureInfo.InvariantCulture));
-#endif
-                }
-            }
-
-            // 数值 → 目标类型
-            if (value is long || value is int || value is double
-                || value is ulong || value is uint
-                || value is short || value is ushort
-                || value is byte || value is sbyte
-                || value is decimal || value is float)
-            {
-                if (type.IsEnum)
-                    return Enum.ToObject(type,
-                        Convert.ChangeType(value,
-                            Enum.GetUnderlyingType(type),
-                            CultureInfo.InvariantCulture));
-
-                if (type == typeof(int))
-                    return Convert.ToInt32(value,CultureInfo.InvariantCulture);
-                if (type == typeof(long))
-                    return Convert.ToInt64(value,CultureInfo.InvariantCulture);
-                if (type == typeof(short))
-                    return Convert.ToInt16(value,CultureInfo.InvariantCulture);
-                if (type == typeof(byte))
-                    return Convert.ToByte(value,CultureInfo.InvariantCulture);
-                if (type == typeof(sbyte))
-                    return Convert.ToSByte(value,CultureInfo.InvariantCulture);
-                if (type == typeof(uint))
-                    return Convert.ToUInt32(value,CultureInfo.InvariantCulture);
-                if (type == typeof(ulong))
-                    return Convert.ToUInt64(value,CultureInfo.InvariantCulture);
-                if (type == typeof(ushort))
-                    return Convert.ToUInt16(value,CultureInfo.InvariantCulture);
-                if (type == typeof(float))
-                    return Convert.ToSingle(value,CultureInfo.InvariantCulture);
-                if (type == typeof(double))
-                    return Convert.ToDouble(value,CultureInfo.InvariantCulture);
-                if (type == typeof(decimal))
-                    return Convert.ToDecimal(value,CultureInfo.InvariantCulture);
-
-                // 注：decimal 经 double 中间层存在精度截断，这是 JSON 数值的固有局限
-            }
-
-            // IList
-            IList<object> jsonArray = value as IList<object>;
-            if (jsonArray != null)
-            {
-                // ... 原有数组反序列化逻辑（elementType 推断 + LogWarning）
-                return DeserializeArray(jsonArray,type,jsonSerializerStrategy);
-            }
-
-            // IDictionary<string,object> → 字典或 POCO
-            IDictionary<string,object> jsonObj =
-                value as IDictionary<string,object>;
-            if (jsonObj != null)
-            {
-                object result;
-                if (TryDeserializeObject(jsonObj,type,out result))
-                    return result;
-
-                return result;
-            }
-
-            // 类型已匹配
-            if (type.IsAssignableFrom(value.GetType()))
-                return value;
-
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-            Guard.LogWarning(
-                "DeserializeObject: Cannot deserialize value of type \"" +
-                value.GetType().FullName + "\" to \"" + type.FullName +
-                "\". Returning raw value.");
-#endif
-            return value;
-        }
-
-        private static object DeserializeArray(
-            IList<object> jsonArray,Type type,
-            IJsonSerializerStrategy strategy)
-        {
-            Type elementType = null;
-
-            if (type.IsArray)
-            {
-                elementType = type.GetElementType();
-            }
-            else if (type.IsGenericType)
-            {
-                Type[] args = type.GetGenericArguments();
-                if (args.Length == 1) elementType = args[0];
-            }
-
-            if (elementType == null || elementType == typeof(object))
-            {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                Guard.LogWarning(
-                    "DeserializeArray: Cannot determine element type for \"" +
-                    type.FullName + "\". Elements deserialized as object. " +
-                    "Consider using List<T> instead.");
-#endif
-                elementType = typeof(object);
-            }
-
-            IList list = new List<object>();
-            foreach (object item in jsonArray)
-                list.Add(strategy.DeserializeObject(item,elementType));
-
-            if (type.IsArray)
-            {
-                Array arr = Array.CreateInstance(elementType,list.Count);
-                for (int i = 0; i < list.Count; i++)
-                    arr.SetValue(list[i],i);
-                return arr;
-            }
-
-            // List<T> 或其他 IList
-            IList result;
-            try
-            {
-                result = (IList)Activator.CreateInstance(type);
-            }
-            catch (MissingMethodException)
-            {
-                // 接口类型（IList<T>/ICollection<T>/IEnumerable<T> 等）无法实例化，
-                // fallback 到 List<elementType>，与原始 SimpleJson 行为一致
-                Type fallbackType = typeof(List<>).MakeGenericType(elementType);
-                result = (IList)Activator.CreateInstance(fallbackType);
-            }
-            catch (Exception ex)
-            {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                Guard.LogWarning(
-                    "DeserializeArray: Failed to create instance of \"" +
-                    type.FullName + "\". Falling back to List<object>. " + ex.Message);
-#endif
-                result = new List<object>();
-            }
-            foreach (object item in list)
-                result.Add(item);
-            return result;
-        }
-
-        protected virtual bool TryDeserializeObject(
-            object value,Type type,out object output)
-        {
-            // 基础类型由 DeserializeObject 主流程处理，此处只处理 POCO
-            var jsonObj = value as IDictionary<string,object>;
-            if (jsonObj == null) { output = null; return false; }
-
-            // 字典类型
-            if (ReflectionUtils.IsTypeDictionary(type))
-            {
-                Type[] genericArgs = type.GetGenericArguments();
-                Type keyType, valueType;
-
-                if (genericArgs.Length >= 2)
-                {
-                    keyType = genericArgs[0];
-                    valueType = genericArgs[1];
-                }
-                else
-                {
-                    // 非泛型字典（Hashtable 等）
-                    keyType = typeof(object);
-                    valueType = typeof(object);
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                    Guard.LogWarning(
-                        "TryDeserializeObject: Non-generic dictionary \"" +
-                        type.FullName + "\". Keys/values as object.");
-#endif
-                }
-
-                IDictionary dict;
-                try
-                {
-                    dict = (IDictionary)Activator.CreateInstance(type);
-                }
-                catch (Exception ex)
-                {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                    Guard.LogError(
-                        "TryDeserializeObject: Failed to create dictionary instance of \"" +
-                        type.FullName + "\". " + ex.Message);
-#endif
-                    throw;
-                }
-
-                foreach (KeyValuePair<string,object> kvp in jsonObj)
-                {
-                    object dictKey;
-                    try
-                    {
-                        dictKey = ConvertDictionaryKey(kvp.Key,keyType);
-                    }
-                    catch (Exception ex)
-                    {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                        Guard.LogError(
-                            "TryDeserializeObject: Cannot convert key \"" +
-                            kvp.Key + "\" to \"" + keyType.FullName +
-                            "\". Skipping. " + ex.Message);
-#endif
-                        continue;
-                    }
-                    // 索引器赋值：重复 key 后者覆盖前者，不抛异常
-                    dict[dictKey] = this.DeserializeObject(
-                        kvp.Value,valueType);
-                }
-
-                output = dict;
-                return true;
-            }
-
-            // POCO
-            object instance;
-            try
-            {
-                instance = Activator.CreateInstance(type);
-            }
-            catch (Exception ex)
-            {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                Guard.LogError(
-                    "TryDeserializeObject: Failed to create instance of \"" +
-                    type.FullName + "\". " + ex.Message);
-#endif
-                throw;
-            }
-
-            IDictionary<string,Action<object,object>> setters =
-                GetOrBuildSetters(type);
-
-            foreach (KeyValuePair<string,object> kvp in jsonObj)
-            {
-                Action<object,object> setter;
-                if (setters.TryGetValue(kvp.Key,out setter))
-                    setter(instance,kvp.Value);
-            }
-
-            output = instance;
-            return true;
-        }
-
-        // ── 字典 key 转换 ────────────────────────────────────────────
-
-        private static object ConvertDictionaryKey(string strKey,Type keyType)
-        {
-            if (keyType == typeof(string) || keyType == typeof(object))
-                return strKey;
-
-            if (keyType.IsEnum)
-            {
-#if !SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
-                return Enum.Parse(keyType,strKey,true);
-#else
-            object numVal = Convert.ChangeType(
-                strKey,
-                Enum.GetUnderlyingType(keyType),
-                CultureInfo.InvariantCulture);
-            return Enum.ToObject(keyType, numVal);
-#endif
-            }
-
-            // int / long / uint / double 等数值类型
-            return Convert.ChangeType(
-                strKey,keyType,CultureInfo.InvariantCulture);
-        }
-        internal static void ClearCache()
-        {
-#if NET20 || SIMPLE_JSON_UNITY
-    lock (_getterBuildLock)
-    {
-        _getterCache.Clear();
-    }
-    lock (_setterBuildLock)
-    {
-        _setterCache.Clear();
-    }
-#else
-            _getterBuildLock.EnterWriteLock();
-            try { _getterCache.Clear(); }
-            finally { _getterBuildLock.ExitWriteLock(); }
-
-            _setterBuildLock.EnterWriteLock();
-            try { _setterCache.Clear(); }
-            finally { _setterBuildLock.ExitWriteLock(); }
-#endif
-        }
-    }
-
-    // ──────────────────────────────────────────────────────────────
-    // ReflectionUtils
-    // ──────────────────────────────────────────────────────────────
-
-    [GeneratedCode("reflection-utils","1.0.0")]
-#if SIMPLE_JSON_REFLECTION_UTILS_PUBLIC
-        public
-#else
-    internal
-#endif
- static class ReflectionUtils
-    {
         // ── SIMPLE_JSON_TYPEINFO 支持 ─────────────────────────────
 
 #if SIMPLE_JSON_TYPEINFO
@@ -1948,7 +750,1012 @@ namespace RS.SimpleJsonUnity
             }
             return GetGenericTypeArguments(type)[0];
         }
+
+#if SIMPLE_JSON_TYPEINFO
+        public static IEnumerable<PropertyInfo> GetProperties(Type type,BindingFlags bindingAttr)
+        {
+            var result = new List<PropertyInfo>();
+            foreach (PropertyInfo p in type.GetRuntimeProperties())
+            {
+                MethodInfo m = p.GetMethod;
+                if (m == null) m = p.SetMethod;
+                if (m == null) continue;
+                bool match = true;
+                if ((bindingAttr & BindingFlags.Public) != 0 && !m.IsPublic) match = false;
+                if ((bindingAttr & BindingFlags.NonPublic) != 0 && m.IsPublic) match = false;
+                if ((bindingAttr & BindingFlags.Static) != 0 && !m.IsStatic) match = false;
+                if ((bindingAttr & BindingFlags.Instance) != 0 && m.IsStatic) match = false;
+                if (match) result.Add(p);
+            }
+            return result;
+        }
+
+        public static IEnumerable<FieldInfo> GetFields(Type type,BindingFlags bindingAttr)
+        {
+            var result = new List<FieldInfo>();
+            foreach (FieldInfo f in type.GetRuntimeFields())
+            {
+                bool match = true;
+                if ((bindingAttr & BindingFlags.Public) != 0 && !f.IsPublic) match = false;
+                if ((bindingAttr & BindingFlags.NonPublic) != 0 && f.IsPublic) match = false;
+                if ((bindingAttr & BindingFlags.Static) != 0 && !f.IsStatic) match = false;
+                if ((bindingAttr & BindingFlags.Instance) != 0 && f.IsStatic) match = false;
+                if (match) result.Add(f);
+            }
+            return result;
+        }
+
+        public static MethodInfo GetGetterMethod(PropertyInfo property)
+        {
+            return property.GetMethod;
+        }
+
+        public static MethodInfo GetSetterMethod(PropertyInfo property)
+        {
+            return property.SetMethod;
+        }
+
+        public static IEnumerable<ConstructorInfo> GetConstructors(Type type)
+        {
+            return type.GetTypeInfo().DeclaredConstructors;
+        }
+#else
+        public static IEnumerable<PropertyInfo> GetProperties(Type type,BindingFlags bindingAttr)
+        {
+            return type.GetProperties(bindingAttr);
+        }
+
+        public static IEnumerable<FieldInfo> GetFields(Type type,BindingFlags bindingAttr)
+        {
+            return type.GetFields(bindingAttr);
+        }
+
+        public static MethodInfo GetGetterMethod(PropertyInfo property)
+        {
+            return property.GetGetMethod(true);
+        }
+
+        public static MethodInfo GetSetterMethod(PropertyInfo property)
+        {
+            return property.GetSetMethod(true);
+        }
+
+        public static IEnumerable<ConstructorInfo> GetConstructors(Type type)
+        {
+            return type.GetConstructors();
+        }
+#endif
+
+        public static bool IsValueType(Type type)
+        {
+            return GetTypeInfo(type).IsValueType;
+        }
     }
+
+    #endregion
+    [GeneratedCode("simple-json","2.0.0")]
+    /// <summary>
+    /// 序列化/反序列化策略接口。
+    /// 实现此接口可完全自定义 SimpleJson 的序列化行为。
+    /// </summary>
+#if SIMPLE_JSON_INTERNAL
+    internal
+#else
+    public
+#endif
+    interface IJsonSerializerStrategy
+    {
+        /// <summary>
+        /// 尝试将非基础类型对象序列化为可进一步处理的中间值。
+        /// </summary>
+        /// <param name="input">待序列化的对象。</param>
+        /// <param name="output">
+        /// 序列化结果：string / IDictionary&lt;string,object&gt; /
+        /// IList&lt;object&gt; / 基础类型之一。
+        /// </param>
+        /// <returns>成功返回 true，交由调用方继续处理 output；
+        /// 失败返回 false。</returns>
+        [SuppressMessage("Microsoft.Design","CA1007:UseGenericsWhereAppropriate",Justification = "Need to support .NET 2")]
+        bool TrySerializeNonPrimitiveObject(object input,out object output);
+
+        /// <summary>
+        /// 尝试将已解析的 JSON 值（IDictionary / IList / 基础类型）
+        /// 反序列化为目标类型的实例。
+        /// </summary>
+        /// <param name="value">JSON 解析器输出的原始值。</param>
+        /// <param name="type">目标 .NET 类型。</param>
+        /// <returns>成功则返回反序列化结果对象否则为null</returns>
+        object DeserializeObject(object value,Type type);
+        /// <summary>
+        /// 清理序列化堆栈（用于循环引用检测）。通常在每次序列化/反序列化操作完成后调用，以避免内存泄漏。
+        /// </summary>
+        void ClearSerializationStack();
+        /// <summary>
+        /// 清空 getter/setter 缓存。当类型定义发生变化时调用。
+        /// </summary>
+        void ClearCache();
+    }
+
+#if SIMPLE_JSON_INTERNAL
+    internal
+#else
+    public
+#endif
+    class DefaultJsonSerializationStrategy : IJsonSerializerStrategy
+    {
+        // volatile 保证多线程可见性
+        // 注：在多线程中动态切换 ignoreLowerCaseForDeserialization 不是线程安全的。
+        // 建议在初始化阶段一次性设定，之后不再修改。
+        // ignoreLowerCaseForDeserialization=true 时：反序列化使用大小写无关匹配（OrdinalIgnoreCase），
+        // 序列化始终保留原始属性名大小写。
+        public volatile bool ignoreLowerCaseForDeserialization;
+
+        // 控制序列化时是否使用 JsonAlias 的第一个别名作为输出键名
+        // 默认 false（与 Newtonsoft.Json 行为一致）：序列化使用原始属性名
+        // 设为 true 时：序列化使用 Aliases[0] 作为键名（如果存在 JsonAlias）
+        public volatile bool useJsonAliasForSerialization;
+
+        #region 实例字段
+
+        // getter 缓存：序列化键名受 useJsonAlias 影响，需要复合 key
+        protected readonly ThreadSafeDictionary<TypeCacheKey,
+            IDictionary<string,Func<object,object>>> m_getterCache
+            = new ThreadSafeDictionary<TypeCacheKey,
+                IDictionary<string,Func<object,object>>>();
+
+        // setter 缓存：反序列化 key 受 ignoreLowerCase 影响，需要复合 key
+        protected readonly ThreadSafeDictionary<TypeCacheKey,
+            IDictionary<string,Action<object,object>>>
+            m_setterCache
+            = new ThreadSafeDictionary<TypeCacheKey,
+                IDictionary<string,Action<object,object>>>();
+
+        // 缓存构建锁
+        protected readonly object m_getterBuildLock = new object();
+        protected readonly object m_setterBuildLock = new object();
+
+        // 序列化循环引用检测栈（实例级别，线程本地存储）
+#if NET20 || NET35
+        // NET20/NET35: 使用 [ThreadStatic] 模拟 ThreadLocal
+        [ThreadStatic]
+        private static HashSet<object> s_serializationStack;
+
+        private HashSet<object> GetSerializationStack()
+        {
+            if (s_serializationStack == null)
+                s_serializationStack = new HashSet<object>();
+            return s_serializationStack;
+        }
+#else
+        private readonly System.Threading.ThreadLocal<HashSet<object>> m_serializationStack
+            = new System.Threading.ThreadLocal<HashSet<object>>(() => new HashSet<object>());
+
+        private HashSet<object> GetSerializationStack()
+        {
+            return m_serializationStack.Value;
+        }
+#endif
+#endregion
+        public DefaultJsonSerializationStrategy()
+        {
+#if SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE
+            ignoreLowerCaseForDeserialization = true;
+#else
+            ignoreLowerCaseForDeserialization = false;
+#endif
+            useJsonAliasForSerialization = false;
+        }
+
+        public DefaultJsonSerializationStrategy(bool ignoreLowerCaseDeserialization,bool useJsonAliasSerialization)
+        {
+            this.ignoreLowerCaseForDeserialization = ignoreLowerCaseDeserialization;
+            this.useJsonAliasForSerialization = useJsonAliasSerialization;
+        }
+
+        public void ClearSerializationStack()
+        {
+            var stack = GetSerializationStack();
+            if (stack != null)
+                stack.Clear();
+        }
+
+        #region 方法
+        // ── 字典 key 转换 ────────────────────────────────────────────
+
+        protected static object ConvertDictionaryKey(string strKey,Type keyType)
+        {
+            if (keyType == typeof(string) || keyType == typeof(object))
+                return strKey;
+
+            if (keyType.IsEnum)
+            {
+#if !SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
+                return Enum.Parse(keyType,strKey,true);
+#else
+            object numVal = Convert.ChangeType(
+                strKey,
+                Enum.GetUnderlyingType(keyType),
+                CultureInfo.InvariantCulture);
+            return Enum.ToObject(keyType, numVal);
+#endif
+            }
+
+            // int / long / uint / double 等数值类型
+            return Convert.ChangeType(
+                strKey,keyType,CultureInfo.InvariantCulture);
+        }
+
+        public void ClearCache()
+        {
+            lock (m_getterBuildLock)
+            {
+                m_getterCache.Clear();
+            }
+            lock (m_setterBuildLock)
+            {
+                m_setterCache.Clear();
+            }
+        }
+                      
+        protected virtual object CoerceValue(object val,Type targetType,IJsonSerializerStrategy strategy)
+        {
+            if (val == null) return null;
+            if (targetType.IsAssignableFrom(val.GetType())) return val;
+
+            Type underlying = Nullable.GetUnderlyingType(targetType);
+            if (underlying != null)
+                targetType = underlying;
+
+            return strategy.DeserializeObject(val,targetType);
+        }
+
+        // ── BuildGetters ────────────────────────────────────────────
+
+        protected virtual  IDictionary<string,Func<object,object>>
+            BuildGetters(Type type,bool useJsonAlias,IJsonSerializerStrategy strategy)
+        {
+            var getters = new Dictionary<string,Func<object,object>>();
+            // seen：按成员名去重，优先最派生版本（GetProperties 返回顺序保证）
+            // C# 不允许同名属性和字段，seen 跨两者去重是安全的
+            var seen = new HashSet<string>();
+
+            // public 属性
+            foreach (PropertyInfo p in ReflectionUtils.GetProperties(type,ReflectionUtils.PUBLIC_INSTANCE))
+            {
+                if (p.GetIndexParameters().Length > 0) continue;
+                if (!p.CanRead) continue;
+                if (seen.Contains(p.Name)) continue;
+                if (ReflectionUtils.HasAttribute<JsonIgnoreAttribute>(p)) continue;
+
+                seen.Add(p.Name);
+                PropertyInfo captured = p;
+
+                string key = p.Name;
+                if (useJsonAlias)
+                {
+                    string alias = ReflectionUtils.GetFirstAlias(ReflectionUtils.GetAttribute<JsonAliasAttribute>(p));
+                    if (alias != null)
+                        key = alias;
+                }
+
+                getters[key] = obj => captured.GetValue(obj,null);
+            }
+
+            // public 字段
+            foreach (FieldInfo f in ReflectionUtils.GetFields(type,ReflectionUtils.PUBLIC_INSTANCE))
+            {
+                if (seen.Contains(f.Name)) continue;
+                if (ReflectionUtils.HasAttribute<JsonIgnoreAttribute>(f)) continue;
+
+                seen.Add(f.Name);
+                FieldInfo captured = f;
+
+                string key = f.Name;
+                if (useJsonAlias)
+                {
+                    JsonAliasAttribute aliasAttr = ReflectionUtils.GetAttribute<JsonAliasAttribute>(f);
+                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                    {
+                        key = aliasAttr.Aliases[0];
+                    }
+                }
+
+                getters[key] = obj => captured.GetValue(obj);
+            }
+
+            // non-public：仅 JsonInclude，JsonIgnore 优先
+            foreach (PropertyInfo p in ReflectionUtils.GetProperties(type,ReflectionUtils.NONPUBLIC_INSTANCE))
+            {
+                if (p.GetIndexParameters().Length > 0) continue;
+                if (!p.CanRead) continue;
+                if (seen.Contains(p.Name)) continue;
+                if (!ReflectionUtils.HasAttribute<JsonIncludeAttribute>(p)) continue;
+                if (ReflectionUtils.HasAttribute<JsonIgnoreAttribute>(p)) continue;
+
+                seen.Add(p.Name);
+                PropertyInfo captured = p;
+
+                string key = p.Name;
+                if (useJsonAlias)
+                {
+                    JsonAliasAttribute aliasAttr = ReflectionUtils.GetAttribute<JsonAliasAttribute>(p);
+                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                    {
+                        key = aliasAttr.Aliases[0];
+                    }
+                }
+
+                getters[key] = obj => captured.GetValue(obj,null);
+            }
+
+            foreach (FieldInfo f in ReflectionUtils.GetFields(type,ReflectionUtils.NONPUBLIC_INSTANCE))
+            {
+                if (seen.Contains(f.Name)) continue;
+                if (!ReflectionUtils.HasAttribute<JsonIncludeAttribute>(f)) continue;
+                if (ReflectionUtils.HasAttribute<JsonIgnoreAttribute>(f)) continue;
+
+                seen.Add(f.Name);
+                FieldInfo captured = f;
+
+                string key = f.Name;
+                if (useJsonAlias)
+                {
+                    JsonAliasAttribute aliasAttr = ReflectionUtils.GetAttribute<JsonAliasAttribute>(f);
+                    if (aliasAttr != null && aliasAttr.Aliases != null && aliasAttr.Aliases.Length > 0)
+                    {
+                        key = aliasAttr.Aliases[0];
+                    }
+                }
+
+                getters[key] = obj => captured.GetValue(obj);
+            }
+
+            return getters;
+        }
+
+        // ── BuildSetters ────────────────────────────────────────────
+
+        protected virtual IDictionary<string,Action<object,object>>
+            BuildSetters(Type type,bool ignoreLowerCase,IJsonSerializerStrategy strategy)
+        {
+            // ignoreLowerCase=true 时使用大小写无关比较器，实现反序列化忽略大小写
+            var setters = ignoreLowerCase
+                ? new Dictionary<string,Action<object,object>>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string,Action<object,object>>();
+            var seen = new HashSet<string>();
+
+            Action<MemberInfo,Type,Action<object,object>> register =
+                (member,memberType,rawSetter) =>
+                {
+                    if (ReflectionUtils.HasAttribute<JsonIgnoreAttribute>(member)) return;
+                    if (seen.Contains(member.Name)) return;
+                    seen.Add(member.Name);
+
+                    // 带类型转换保护的 setter
+                    Type capturedType = memberType;
+                    MemberInfo capturedMember = member;
+                    Action<object,object> safeSetter = (obj,val) =>
+                    {
+                        try
+                        {
+                            rawSetter(obj,CoerceValue(val,capturedType,strategy));
+                        }
+                        catch (Exception ex)
+                        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                            Guard.LogWarning(
+                            "SetValue: Cannot assign to \"" +
+                            capturedMember.DeclaringType.FullName + "." +
+                            capturedMember.Name + "\". " + ex.Message);
+#endif
+                            // 跳过赋值，保留默认值
+                        }
+                    };
+
+                    // setter key 始终使用原始属性名；
+                    // ignoreLowerCase 的效果由字典的 OrdinalIgnoreCase 比较器实现
+                    string originalKey = member.Name;
+
+                    JsonAliasAttribute aliasAttr = ReflectionUtils.GetAttribute<JsonAliasAttribute>(member);
+                    if (aliasAttr != null)
+                    {
+                        foreach (string alias in aliasAttr.Aliases)
+                        {
+                            setters[alias] = safeSetter;
+                        }
+                        if (aliasAttr.AcceptOriginalName)
+                        {
+                            setters[originalKey] = safeSetter;
+                        }
+                    }
+                    else
+                    {
+                        setters[originalKey] = safeSetter;
+                    }
+                };
+
+            // public 属性
+            foreach (PropertyInfo p in ReflectionUtils.GetProperties(type,ReflectionUtils.PUBLIC_INSTANCE))
+            {
+                if (p.GetIndexParameters().Length > 0) continue;
+                if (!p.CanWrite) continue;
+                PropertyInfo captured = p;
+                register(p,p.PropertyType,
+                    (obj,val) => captured.SetValue(obj,val,null));
+            }
+
+            // public 字段
+            foreach (FieldInfo f in ReflectionUtils.GetFields(type,ReflectionUtils.PUBLIC_INSTANCE))
+            {
+                FieldInfo captured = f;
+                register(f,f.FieldType,
+                    (obj,val) => captured.SetValue(obj,val));
+            }
+
+            // non-public：仅 JsonInclude
+            foreach (PropertyInfo p in ReflectionUtils.GetProperties(type,ReflectionUtils.NONPUBLIC_INSTANCE))
+            {
+                if (p.GetIndexParameters().Length > 0) continue;
+                if (!p.CanWrite) continue;
+                if (!ReflectionUtils.HasAttribute<JsonIncludeAttribute>(p)) continue;
+                PropertyInfo captured = p;
+                register(p,p.PropertyType,
+                    (obj,val) => captured.SetValue(obj,val,null));
+            }
+
+            foreach (FieldInfo f in ReflectionUtils.GetFields(type,ReflectionUtils.NONPUBLIC_INSTANCE))
+            {
+                if (!ReflectionUtils.HasAttribute<JsonIncludeAttribute>(f)) continue;
+                FieldInfo captured = f;
+                register(f,f.FieldType,
+                    (obj,val) => captured.SetValue(obj,val));
+            }
+
+            return setters;
+        }
+
+        // ── MapClrMemberNameToJsonFieldName ─────────────────────────
+
+        public virtual string MapClrMemberNameToJsonFieldName(string clrName)
+        {
+            if (clrName == null) return clrName;
+            // SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE 仅影响反序列化（大小写无关匹配），
+            // 序列化始终保留原始属性名
+            return clrName;
+        }
+        #endregion
+        // ── GetOrBuild 缓存访问 ─────────────────────────────────────
+
+        protected virtual IDictionary<string,Func<object,object>>
+            GetOrBuildGetters(Type type)
+        {
+            var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization,useJsonAliasForSerialization);
+            IDictionary<string,Func<object,object>> cached;
+            if (m_getterCache.TryGetValue(cacheKey,out cached)) return cached;
+            lock (m_getterBuildLock)
+            {
+                if (m_getterCache.TryGetValue(cacheKey,out cached)) return cached;
+                IDictionary<string,Func<object,object>> built;
+                try { built = BuildGetters(type,useJsonAliasForSerialization,this); }
+                catch (Exception ex)
+                {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                    Guard.LogError("GetOrBuildGetters: Failed for \"" +
+                        type.FullName + "\". " + ex.Message);
+#endif
+                    return new Dictionary<string,Func<object,object>>();
+                }
+                m_getterCache[cacheKey] = built;
+                return built;
+            }
+        }
+
+        protected virtual IDictionary<string,Action<object,object>>
+            GetOrBuildSetters(Type type)
+        {
+            var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization);
+            IDictionary<string,Action<object,object>> cached;
+            if (m_setterCache.TryGetValue(cacheKey,out cached)) return cached;
+            lock (m_setterBuildLock)
+            {
+                if (m_setterCache.TryGetValue(cacheKey,out cached)) return cached;
+                IDictionary<string,Action<object,object>> built;
+                try { built = BuildSetters(type,ignoreLowerCaseForDeserialization,this); }
+                catch (Exception ex)
+                {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                    Guard.LogError("GetOrBuildSetters: Failed for \"" +
+                        type.FullName + "\". " + ex.Message);
+#endif
+                    return new Dictionary<string,Action<object,object>>();
+                }
+                m_setterCache[cacheKey] = built;
+                return built;
+            }
+        }
+
+        // ── TrySerializeNonPrimitiveObject ──────────────────────────
+
+        public virtual bool TrySerializeNonPrimitiveObject(
+            object input,out object output)
+        {
+            return TrySerializeKnownTypes(input,out output)
+                || TrySerializeUnknownTypes(input,out output);
+        }
+
+        protected virtual bool TrySerializeKnownTypes(
+            object input,out object output)
+        {
+            if (input == null) { output = null; return false; }
+
+            // DateTime
+            if (input is DateTime)
+            {
+
+                output = ((DateTime)input).ToUniversalTime().ToString(
+                    Constants.Iso8601Format[0],
+                    CultureInfo.InvariantCulture);
+
+                return true;
+            }
+            // DateTimeOffset
+            if (input is DateTimeOffset)
+            {
+                output = ((DateTimeOffset)input).ToUniversalTime().ToString(
+                    Constants.Iso8601Format[0],
+                    CultureInfo.InvariantCulture);
+                return true;
+            }
+            // Guid
+            if (input is Guid)
+            {
+                output = ((Guid)input).ToString("D",
+                    CultureInfo.InvariantCulture);
+                return true;
+            }
+            // char
+            if (input is char)
+            {
+                output = ((char)input).ToString();
+                return true;
+            }
+            if (input is TimeSpan)
+            {
+                output = ((TimeSpan)input).Ticks.ToString(CultureInfo.InvariantCulture);
+                return true;
+            }
+            // Uri
+            if (input is Uri)
+            {
+                output = ((Uri)input).ToString();
+                return true;
+            }
+            // Enum：序列化为底层数值（与 LitJSON 默认行为一致）
+            if (input is Enum)
+            {
+                output = Convert.ChangeType(
+                    input,
+                    Enum.GetUnderlyingType(input.GetType()),
+                    CultureInfo.InvariantCulture);
+                return true;
+            }
+
+            output = null;
+            return false;
+        }
+
+        protected virtual bool TrySerializeUnknownTypes(
+            object input,out object output)
+        {
+            if (input == null) { output = null; return false; }
+
+            Type type = input.GetType();
+
+            if (type.IsPrimitive || type == typeof(string) || type == typeof(decimal))
+            {
+                output = null;
+                return false;
+            }
+
+            // 集合类型（IDictionary / IList）由 SerializeValue 主流程处理，
+            // 不应被当作 POCO 枚举属性（否则 List<int> 会输出 {"capacity":4,"count":3}）
+            if (input is IDictionary || input is IList)
+            {
+                output = null;
+                return false;
+            }
+
+            var stack = GetSerializationStack();
+
+            if (stack.Contains(input))
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                Guard.LogError(
+                    "TrySerializeUnknownTypes: Circular reference detected for type \"" +
+                    input.GetType().FullName + "\". Object will be serialized as null.");
+#endif
+                output = null;
+                return true;
+            }
+
+            stack.Add(input);
+
+            var result = new JsonObject();
+
+            IDictionary<string,Func<object,object>> getters =
+                GetOrBuildGetters(type);
+
+            foreach (KeyValuePair<string,Func<object,object>> kvp in getters)
+            {
+                string jsonKey = MapClrMemberNameToJsonFieldName(kvp.Key);
+                object val = kvp.Value(input);
+
+                if (val != null)
+                {
+                    object exportValue;
+                    if (TrySerializeNonPrimitiveObject(val,out exportValue))
+                        val = exportValue;
+                }
+
+                result[jsonKey] = val;
+            }
+
+            output = result;
+            return true;
+        }
+
+        // ── TryDeserializeObject ────────────────────────────────────
+        public virtual object DeserializeObject(
+       object value,Type type)
+        {
+            if (type == null || value == null) return value;
+            // string → 目标类型
+            string str = value as string;
+            if (str != null)
+            {
+                if (type == typeof(string)) return str;
+                if (type == typeof(Guid))
+                {
+                    if (str.Length == 0) return default(Guid);
+                    return new Guid(str);
+                }
+                if (type == typeof(Uri)) return new Uri(str);
+                if (type == typeof(char))
+                {
+                    if (str.Length == 1) return str[0];
+                    if (str.Length > 1)
+                    {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                        Guard.LogWarning(
+                            "DeserializeObject: string \"" + str +
+                            "\" truncated to char '" + str[0] + "'.");
+#endif
+                        return str[0];
+                    }
+                    return default(char);
+                }
+                if (type == typeof(DateTime))
+                {
+                    try
+                    {
+                        return DateTime.ParseExact(str,
+                            Constants.Iso8601Format,
+                            CultureInfo.InvariantCulture,
+                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+                    }
+                    catch (FormatException)
+                    {
+                        return Convert.ToDateTime(str,CultureInfo.InvariantCulture);
+                    }
+                }
+                if (type == typeof(DateTimeOffset))
+                {
+                    try
+                    {
+                        return DateTimeOffset.ParseExact(str,
+                           Constants.Iso8601Format,
+                            CultureInfo.InvariantCulture,
+                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+                    }
+                    catch (FormatException)
+                    {
+                        return DateTimeOffset.Parse(str,CultureInfo.InvariantCulture);
+                    }
+                }
+                if (type == typeof(TimeSpan))
+                {
+                    if (long.TryParse(str,out long ticks))
+                        return new TimeSpan(ticks);
+#if NET20 || NET35
+                    return TimeSpan.Parse(str);
+#else
+                    return TimeSpan.Parse(str,CultureInfo.InvariantCulture);
+#endif
+                }
+                if (type.IsEnum)
+                {
+#if !SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
+                    return Enum.Parse(type,str,true);
+#else
+                return Enum.ToObject(type,
+                    Convert.ChangeType(str,
+                        Enum.GetUnderlyingType(type),
+                        CultureInfo.InvariantCulture));
+#endif
+                }
+            }
+
+            // 数值 → 目标类型
+            if (value is long || value is int || value is double
+                || value is ulong || value is uint
+                || value is short || value is ushort
+                || value is byte || value is sbyte
+                || value is decimal || value is float)
+            {
+                // 浮点 → 整数/枚举时必须截断小数部分，
+                // Convert.ToInt32 等使用银行家舍入，不符合 JSON 语义
+                if (value is double || value is float || value is decimal)
+                {
+                    if (type.IsEnum)
+                        return Enum.ToObject(type,
+                            Convert.ChangeType(
+                                Math.Truncate(Convert.ToDecimal(value,CultureInfo.InvariantCulture)),
+                                Enum.GetUnderlyingType(type),
+                                CultureInfo.InvariantCulture));
+
+                    if (type == typeof(int))
+                        return (int)Math.Truncate(Convert.ToDecimal(value,CultureInfo.InvariantCulture));
+                    if (type == typeof(long))
+                        return (long)Math.Truncate(Convert.ToDecimal(value,CultureInfo.InvariantCulture));
+                    if (type == typeof(short))
+                        return (short)Math.Truncate(Convert.ToDecimal(value,CultureInfo.InvariantCulture));
+                    if (type == typeof(byte))
+                        return (byte)Math.Truncate(Convert.ToDecimal(value,CultureInfo.InvariantCulture));
+                    if (type == typeof(sbyte))
+                        return (sbyte)Math.Truncate(Convert.ToDecimal(value,CultureInfo.InvariantCulture));
+                    if (type == typeof(uint))
+                        return (uint)Math.Truncate(Convert.ToDecimal(value,CultureInfo.InvariantCulture));
+                    if (type == typeof(ulong))
+                        return (ulong)Math.Truncate(Convert.ToDecimal(value,CultureInfo.InvariantCulture));
+                    if (type == typeof(ushort))
+                        return (ushort)Math.Truncate(Convert.ToDecimal(value,CultureInfo.InvariantCulture));
+                }
+                else
+                {
+                    if (type.IsEnum)
+                        return Enum.ToObject(type,
+                            Convert.ChangeType(value,
+                                Enum.GetUnderlyingType(type),
+                                CultureInfo.InvariantCulture));
+
+                    if (type == typeof(int))
+                        return Convert.ToInt32(value,CultureInfo.InvariantCulture);
+                    if (type == typeof(long))
+                        return Convert.ToInt64(value,CultureInfo.InvariantCulture);
+                    if (type == typeof(short))
+                        return Convert.ToInt16(value,CultureInfo.InvariantCulture);
+                    if (type == typeof(byte))
+                        return Convert.ToByte(value,CultureInfo.InvariantCulture);
+                    if (type == typeof(sbyte))
+                        return Convert.ToSByte(value,CultureInfo.InvariantCulture);
+                    if (type == typeof(uint))
+                        return Convert.ToUInt32(value,CultureInfo.InvariantCulture);
+                    if (type == typeof(ulong))
+                        return Convert.ToUInt64(value,CultureInfo.InvariantCulture);
+                    if (type == typeof(ushort))
+                        return Convert.ToUInt16(value,CultureInfo.InvariantCulture);
+                }
+
+                if (type == typeof(float))
+                    return Convert.ToSingle(value,CultureInfo.InvariantCulture);
+                if (type == typeof(double))
+                    return Convert.ToDouble(value,CultureInfo.InvariantCulture);
+                if (type == typeof(decimal))
+                    return Convert.ToDecimal(value,CultureInfo.InvariantCulture);
+
+                // 注：decimal 经 double 中间层存在精度截断，这是 JSON 数值的固有局限
+            }
+
+            // IList
+            IList<object> jsonArray = value as IList<object>;
+            if (jsonArray != null)
+            {
+                // ... 原有数组反序列化逻辑（elementType 推断 + LogWarning）
+                return DeserializeArray(jsonArray,type,this);
+            }
+
+            // IDictionary<string,object> → 字典或 POCO
+            IDictionary<string,object> jsonObj =
+                value as IDictionary<string,object>;
+            if (jsonObj != null)
+            {
+                DeserializeFromJsonObject(jsonObj,type,out object result);
+                return result;
+            }
+
+            // 类型已匹配
+            if (type.IsAssignableFrom(value.GetType()))
+                return value;
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+            Guard.LogWarning(
+                "DeserializeObject: Cannot deserialize value of type \"" +
+                value.GetType().FullName + "\" to \"" + type.FullName +
+                "\". Returning raw value.");
+#endif
+            return value;
+        }
+
+        protected virtual object DeserializeArray(
+            IList<object> jsonArray,Type type,
+            IJsonSerializerStrategy strategy)
+        {
+            Type elementType = null;
+
+            if (type.IsArray)
+            {
+                elementType = type.GetElementType();
+            }
+            else if (type.IsGenericType)
+            {
+                Type[] args = type.GetGenericArguments();
+                if (args.Length == 1) elementType = args[0];
+            }
+
+            if (elementType == null || elementType == typeof(object))
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                Guard.LogWarning(
+                    "DeserializeArray: Cannot determine element type for \"" +
+                    type.FullName + "\". Elements deserialized as object. " +
+                    "Consider using List<T> instead.");
+#endif
+                elementType = typeof(object);
+            }
+
+            IList list = new List<object>();
+            foreach (object item in jsonArray)
+                list.Add(strategy.DeserializeObject(item,elementType));
+
+            if (type.IsArray)
+            {
+                Array arr = Array.CreateInstance(elementType,list.Count);
+                for (int i = 0; i < list.Count; i++)
+                    arr.SetValue(list[i],i);
+                return arr;
+            }
+
+            // List<T> 或其他 IList
+            IList result;
+            try
+            {
+                result = (IList)Activator.CreateInstance(type);
+            }
+            catch (MissingMethodException)
+            {
+                // 接口类型（IList<T>/ICollection<T>/IEnumerable<T> 等）无法实例化，
+                // fallback 到 List<elementType>，与原始 SimpleJson 行为一致
+                Type fallbackType = typeof(List<>).MakeGenericType(elementType);
+                result = (IList)Activator.CreateInstance(fallbackType);
+            }
+            catch (Exception ex)
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                Guard.LogWarning(
+                    "DeserializeArray: Failed to create instance of \"" +
+                    type.FullName + "\". Falling back to List<object>. " + ex.Message);
+#endif
+                result = new List<object>();
+            }
+            foreach (object item in list)
+                result.Add(item);
+            return result;
+        }
+
+        protected virtual bool DeserializeFromJsonObject(
+            object value,Type type,out object output)
+        {
+            // 基础类型由 DeserializeObject 主流程处理，此处只处理 POCO
+            var jsonObj = value as IDictionary<string,object>;
+            if (jsonObj == null) { output = null; return false; }
+
+            // 字典类型
+            if (ReflectionUtils.IsTypeDictionary(type))
+            {
+                Type[] genericArgs = type.GetGenericArguments();
+                Type keyType, valueType;
+
+                if (genericArgs.Length >= 2)
+                {
+                    keyType = genericArgs[0];
+                    valueType = genericArgs[1];
+                }
+                else
+                {
+                    // 非泛型字典（Hashtable 等）
+                    keyType = typeof(object);
+                    valueType = typeof(object);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                    Guard.LogWarning(
+                        "DeserializeFromJsonObject: Non-generic dictionary \"" +
+                        type.FullName + "\". Keys/values as object.");
+#endif
+                }
+
+                IDictionary dict;
+                try
+                {
+                    dict = (IDictionary)Activator.CreateInstance(type);
+                }
+                catch (Exception ex)
+                {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                    Guard.LogError(
+                        "DeserializeFromJsonObject: Failed to create dictionary instance of \"" +
+                        type.FullName + "\". " + ex.Message);
+#endif
+                    throw;
+                }
+
+                foreach (KeyValuePair<string,object> kvp in jsonObj)
+                {
+                    object dictKey;
+                    try
+                    {
+                        dictKey = ConvertDictionaryKey(kvp.Key,keyType);
+                    }
+                    catch (Exception ex)
+                    {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                        Guard.LogError(
+                        "DeserializeFromJsonObject: Cannot convert key \"" +
+                        kvp.Key + "\" to \"" + keyType.FullName +
+                        "\". Skipping. " + ex.Message);
+#endif
+                        continue;
+                    }
+                    // 索引器赋值：重复 key 后者覆盖前者，不抛异常
+                    dict[dictKey] = this.DeserializeObject(
+                        kvp.Value,valueType);
+                }
+
+                output = dict;
+                return true;
+            }
+
+            // POCO
+            object instance;
+            try
+            {
+                instance = Activator.CreateInstance(type);
+            }
+            catch (Exception ex)
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                Guard.LogError(
+                    "DeserializeFromJsonObject: Failed to create instance of \"" +
+                    type.FullName + "\". " + ex.Message);
+#endif
+                throw;
+            }
+
+            IDictionary<string,Action<object,object>> setters =
+                GetOrBuildSetters(type);
+
+            foreach (KeyValuePair<string,object> kvp in jsonObj)
+            {
+                Action<object,object> setter;
+                if (setters.TryGetValue(kvp.Key,out setter))
+                    setter(instance,kvp.Value);
+            }
+
+            output = instance;
+            return true;
+        }
+
+
+    }
+
 
     // ──────────────────────────────────────────────────────────────
     // JsonObject  (IDictionary<string,object> 别名，保持原库接口)
@@ -2966,8 +2773,7 @@ namespace RS.SimpleJsonUnity
 
         public static void ClearReflectionCache()
         {
-            // 兼容 .NET 2.0/4.0：不使用 is T x 模式匹配
-            DefaultJsonSerializationStrategy.ClearCache();
+            CurrentJsonSerializerStrategy.ClearCache();
         }
 
         // ── 序列化 ──────────────────────────────────────────────────
@@ -3334,10 +3140,10 @@ namespace RS.SimpleJsonUnity
             }
             IJsonSerializerStrategy jsonSerializerStrategy = (strategy != null ? strategy : CurrentJsonSerializerStrategy);
             return jsonSerializerStrategy.DeserializeObject(jsonObject,type);
-           
+
         }
 
-   
+
     }
 
 } // namespace SimpleJson
@@ -3376,13 +3182,20 @@ namespace RS.SimpleJsonUnity
         {
             if (input != null && IsUnityType(input.GetType()))
             {
+#if DEBUG111
+                //没有unity环境状态
+                output = null;
+                return false;
+#else
                 output = UnityEngine.JsonUtility.ToJson(input);
+ //#endif
                 return true;
+#endif
             }
             return base.TrySerializeKnownTypes(input, out output);
         }
 
-        public override bool TryDeserializeObject(
+        protected override bool DeserializeFromJsonObject(
             object value, Type type, out object output)
         {
             if (IsUnityType(type))
@@ -3391,8 +3204,14 @@ namespace RS.SimpleJsonUnity
                 string str = value as string;
                 if (!string.IsNullOrEmpty(str))
                 {
+#if DEBUG1111
+                    //没有unity环境状态
+                    output = null;
+                    return false;
+#else
                     output = UnityEngine.JsonUtility.FromJson(str, type);
                     return true;
+#endif
                 }
 
                 // 情形二：value 已被预解析为字典（JSON 对象）
@@ -3403,12 +3222,18 @@ namespace RS.SimpleJsonUnity
                     string json = SimpleJson.SerializeObject(dict);
                     if (!string.IsNullOrEmpty(json))
                     {
+#if DEBUG111
+                        //没有unity环境状态
+                        output = null;
+                        return false;   
+#else
                         output = UnityEngine.JsonUtility.FromJson(json, type);
                         return true;
+#endif
                     }
                 }
             }
-            return base.TryDeserializeObject(value, type, out output);
+            return base.DeserializeFromJsonObject(value, type, out output);
         }
     }
 }
@@ -3458,9 +3283,8 @@ namespace RS.SimpleJsonUnity
 
             if (hasDataContract)
             {
-                DataMemberAttribute dataMember = (DataMemberAttribute)
-                    member.GetCustomAttributes(typeof(DataMemberAttribute), true)
-                    .FirstOrDefault();
+                object[] attrs = member.GetCustomAttributes(typeof(DataMemberAttribute), true);
+                DataMemberAttribute dataMember = (attrs.Length > 0) ? (DataMemberAttribute)attrs[0] : null;
 
                 if (dataMember != null && !string.IsNullOrEmpty(dataMember.Name))
                     jsonKey = dataMember.Name;
@@ -3531,7 +3355,7 @@ namespace RS.SimpleJsonUnity
             bool hasDataContract = HasDataContract(type);
 
             // public 属性
-            foreach (PropertyInfo p in type.GetProperties(PUBLIC_INSTANCE))
+            foreach (PropertyInfo p in ReflectionUtils.GetProperties(type,ReflectionUtils.PUBLIC_INSTANCE))
             {
                 if (p.GetIndexParameters().Length > 0) continue;
                 if (!p.CanRead) continue;
@@ -3544,7 +3368,7 @@ namespace RS.SimpleJsonUnity
                 
                 if (useJsonAlias)
                 {
-                    string alias = GetFirstAlias(GetAttribute<JsonAliasAttribute>(p));
+                    string alias = ReflectionUtils.GetFirstAlias(ReflectionUtils.GetAttribute<JsonAliasAttribute>(p));
                     if (alias != null)
                     {
                         jsonKey = alias;
@@ -3566,7 +3390,7 @@ namespace RS.SimpleJsonUnity
             }
 
             // public 字段
-            foreach (FieldInfo f in type.GetFields(PUBLIC_INSTANCE))
+            foreach (FieldInfo f in ReflectionUtils.GetFields(type,ReflectionUtils.PUBLIC_INSTANCE))
             {
                 if (seen.Contains(f.Name)) continue;
 
@@ -3577,7 +3401,7 @@ namespace RS.SimpleJsonUnity
                 
                 if (useJsonAlias)
                 {
-                    string alias = GetFirstAlias(GetAttribute<JsonAliasAttribute>(f));
+                    string alias = ReflectionUtils.GetFirstAlias(ReflectionUtils.GetAttribute<JsonAliasAttribute>(f));
                     if (alias != null)
                     {
                         jsonKey = alias;
@@ -3599,7 +3423,7 @@ namespace RS.SimpleJsonUnity
             }
 
             // non-public：仅 JsonInclude 或 DataMember
-            foreach (PropertyInfo p in type.GetProperties(NONPUBLIC_INSTANCE))
+            foreach (PropertyInfo p in ReflectionUtils.GetProperties(type,ReflectionUtils.NONPUBLIC_INSTANCE))
             {
                 if (p.GetIndexParameters().Length > 0) continue;
                 if (!p.CanRead) continue;
@@ -3617,7 +3441,7 @@ namespace RS.SimpleJsonUnity
                 
                 if (useJsonAlias)
                 {
-                    string alias = GetFirstAlias(GetAttribute<JsonAliasAttribute>(p));
+                    string alias = ReflectionUtils.GetFirstAlias(ReflectionUtils.GetAttribute<JsonAliasAttribute>(p));
                     if (alias != null)
                     {
                         jsonKey = alias;
@@ -3638,7 +3462,7 @@ namespace RS.SimpleJsonUnity
                 getters[jsonKey] = obj => captured.GetValue(obj, null);
             }
 
-            foreach (FieldInfo f in type.GetFields(NONPUBLIC_INSTANCE))
+            foreach (FieldInfo f in ReflectionUtils.GetFields(type,ReflectionUtils.NONPUBLIC_INSTANCE))
             {
                 if (seen.Contains(f.Name)) continue;
 
@@ -3653,7 +3477,7 @@ namespace RS.SimpleJsonUnity
                 
                 if (useJsonAlias)
                 {
-                    string alias = GetFirstAlias(GetAttribute<JsonAliasAttribute>(f));
+                    string alias = ReflectionUtils.GetFirstAlias(ReflectionUtils.GetAttribute<JsonAliasAttribute>(f));
                     if (alias != null)
                     {
                         jsonKey = alias;
@@ -3696,9 +3520,8 @@ namespace RS.SimpleJsonUnity
 
             if (hasDataContract)
             {
-                DataMemberAttribute dataMember = (DataMemberAttribute)
-                    member.GetCustomAttributes(typeof(DataMemberAttribute), true)
-                    .FirstOrDefault();
+                object[] dmAttrs = member.GetCustomAttributes(typeof(DataMemberAttribute), true);
+                DataMemberAttribute dataMember = (dmAttrs.Length > 0) ? (DataMemberAttribute)dmAttrs[0] : null;
 
                 if (dataMember != null && !string.IsNullOrEmpty(dataMember.Name))
                     jsonKey = dataMember.Name;
@@ -3768,8 +3591,8 @@ namespace RS.SimpleJsonUnity
                     string jsonKey = GetJsonKeyName(member, hasDataContract, ignoreLowerCase);
 
                     // JsonAlias 支持
-                    JsonAliasAttribute aliasAttr = member.GetCustomAttributes(typeof(JsonAliasAttribute), true)
-                        .FirstOrDefault() as JsonAliasAttribute;
+                    object[] jaAttrs = member.GetCustomAttributes(typeof(JsonAliasAttribute), true);
+                    JsonAliasAttribute aliasAttr = (jaAttrs.Length > 0) ? jaAttrs[0] as JsonAliasAttribute : null;
                     if (aliasAttr != null)
                     {
                         foreach (string alias in aliasAttr.Aliases)
@@ -3788,7 +3611,7 @@ namespace RS.SimpleJsonUnity
                 };
 
             // public 属性
-            foreach (PropertyInfo p in type.GetProperties(PUBLIC_INSTANCE))
+            foreach (PropertyInfo p in ReflectionUtils.GetProperties(type,ReflectionUtils.PUBLIC_INSTANCE))
             {
                 if (p.GetIndexParameters().Length > 0) continue;
                 if (!p.CanWrite) continue;
@@ -3797,14 +3620,14 @@ namespace RS.SimpleJsonUnity
             }
 
             // public 字段
-            foreach (FieldInfo f in type.GetFields(PUBLIC_INSTANCE))
+            foreach (FieldInfo f in ReflectionUtils.GetFields(type,ReflectionUtils.PUBLIC_INSTANCE))
             {
                 FieldInfo captured = f;
                 register(f, f.FieldType, (obj, val) => captured.SetValue(obj, val));
             }
 
             // non-public：DataMember 或 JsonInclude
-            foreach (PropertyInfo p in type.GetProperties(NONPUBLIC_INSTANCE))
+            foreach (PropertyInfo p in ReflectionUtils.GetProperties(type,ReflectionUtils.NONPUBLIC_INSTANCE))
             {
                 if (p.GetIndexParameters().Length > 0) continue;
                 if (!p.CanWrite) continue;
@@ -3817,7 +3640,7 @@ namespace RS.SimpleJsonUnity
                 register(p, p.PropertyType, (obj, val) => captured.SetValue(obj, val, null));
             }
 
-            foreach (FieldInfo f in type.GetFields(NONPUBLIC_INSTANCE))
+            foreach (FieldInfo f in ReflectionUtils.GetFields(type,ReflectionUtils.NONPUBLIC_INSTANCE))
             {
                 bool hasDataMember = f.IsDefined(typeof(DataMemberAttribute), true);
                 bool hasJsonInclude = f.IsDefined(typeof(JsonIncludeAttribute), true);
@@ -3930,8 +3753,7 @@ namespace RS.SimpleJsonUnity
                 && !typeof(IDictionary).IsAssignableFrom(targetType)
                 && !typeof(IList).IsAssignableFrom(targetType))
             {
-                return SimpleJson.DeserializeObject(
-                    pocoDict, targetType, SimpleJson.CurrentJsonSerializerStrategy);
+                return SimpleJson.CurrentJsonSerializerStrategy.DeserializeObject(pocoDict, targetType);
             }
 
             return Convert.ChangeType(val, targetType, CultureInfo.InvariantCulture);
@@ -3941,17 +3763,15 @@ namespace RS.SimpleJsonUnity
 
         protected override IDictionary<string, Func<object, object>> GetOrBuildGetters(Type type)
         {
-            // 使用 DataContract 版本的 BuildGetters
-            var cache = _getterCache;
-            var cacheKey = new TypeCacheKey(type, ignoreLowerCaseDeserialization, useJsonAliasForSerialization);
+            var cacheKey = new TypeCacheKey(type, ignoreLowerCaseForDeserialization, useJsonAliasForSerialization);
             IDictionary<string, Func<object, object>> cached;
-            if (cache.TryGetValue(cacheKey, out cached)) return cached;
+            if (m_getterCache.TryGetValue(cacheKey, out cached)) return cached;
 
-            lock (_getterBuildLock)
+            lock (m_getterBuildLock)
             {
-                if (cache.TryGetValue(cacheKey, out cached)) return cached;
+                if (m_getterCache.TryGetValue(cacheKey, out cached)) return cached;
                 IDictionary<string, Func<object, object>> built;
-                try { built = BuildGettersWithDataContract(type, ignoreLowerCaseDeserialization, useJsonAliasForSerialization); }
+                try { built = BuildGettersWithDataContract(type, ignoreLowerCaseForDeserialization, useJsonAliasForSerialization); }
                 catch (Exception ex)
                 {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
@@ -3960,23 +3780,22 @@ namespace RS.SimpleJsonUnity
 #endif
                     return new Dictionary<string, Func<object, object>>();
                 }
-                cache[cacheKey] = built;
+                m_getterCache[cacheKey] = built;
                 return built;
             }
         }
 
         protected override IDictionary<string, Action<object, object>> GetOrBuildSetters(Type type)
         {
-            var cacheKey = new TypeCacheKey(type, ignoreLowerCaseDeserialization);
-            var cache = _setterCache;
+            var cacheKey = new TypeCacheKey(type, ignoreLowerCaseForDeserialization);
             IDictionary<string, Action<object, object>> cached;
-            if (cache.TryGetValue(cacheKey, out cached)) return cached;
+            if (m_setterCache.TryGetValue(cacheKey, out cached)) return cached;
 
-            lock (_setterBuildLock)
+            lock (m_setterBuildLock)
             {
-                if (cache.TryGetValue(cacheKey, out cached)) return cached;
+                if (m_setterCache.TryGetValue(cacheKey, out cached)) return cached;
                 IDictionary<string, Action<object, object>> built;
-                try { built = BuildSettersWithDataContract(type, ignoreLowerCaseDeserialization); }
+                try { built = BuildSettersWithDataContract(type, ignoreLowerCaseForDeserialization); }
                 catch (Exception ex)
                 {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
@@ -3985,7 +3804,7 @@ namespace RS.SimpleJsonUnity
 #endif
                     return new Dictionary<string, Action<object, object>>();
                 }
-                cache[cacheKey] = built;
+                m_setterCache[cacheKey] = built;
                 return built;
             }
         }
