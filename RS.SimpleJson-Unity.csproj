@@ -41,6 +41,16 @@ SimpleJson-Unity.cs is a lightweight JSON serialization/deserialization library 
   <ItemGroup>
     <None Remove=".gitignore" />
     <None Remove="LICENSE" />
+    <None Remove="out.txt" />
+    <None Remove="test_err.txt" />
+    <None Remove="test_out.txt" />
+    <None Remove="test_output.txt" />
+    <None Remove="test_output2.txt" />
+    <None Remove="test_output3.txt" />
+    <None Remove="test_output4.txt" />
+    <None Remove="test_output5.txt" />
+    <None Remove="test_output6.txt" />
+    <None Remove="test_result.txt" />
   </ItemGroup>
 
   <ItemGroup>

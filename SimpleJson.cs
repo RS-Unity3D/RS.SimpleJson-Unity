@@ -26,7 +26,7 @@
 ////sgd: 2025.12.15 support unity 3d
 ////sgd: 2025.11.10 support property To lower case
 ////sgd: 2025.10.1 support string key dictionary
-//// VERSION: 2.1.0.0
+//// VERSION: 2.2.0.0
 
 ////NOTE: uncomment the following line to make SimpleJson class internal.
 ////#define SIMPLE_JSON_INTERNAL
@@ -46,13 +46,9 @@
 //// NOTE: uncomment the following line to enable IReadOnlyCollection<T> and IReadOnlyList<T> support.
 //#define SIMPLE_JSON_READONLY_COLLECTIONS
 
-
-
 //// NOTE: uncomment the following line if you are compiling under Window Metro style application/library.
 //// usually already defined in properties
 ////#define NETFX_CORE;
-
-
 
 ////NOTE:If you are targetting WinStore, WP8 and NET4.5+ PCL make sure to #define SIMPLE_JSON_TYPEINFO;
 ////#define SIMPLE_JSON_TYPEINFO;
@@ -61,8 +57,7 @@
 //NOTE:SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
 //#define SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
 
-//NOTE:Ignore the case of property/field names during deserialization
-// SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE
+//NOTE:#define SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE, Ignore the case of property/field names during deserialization
 //     Define to make the default serialization strategy ignore
 //     property/field name casing during deserialization.
 //     Serialization always preserves original casing.
@@ -694,17 +689,6 @@ namespace RS.SimpleJsonUnity
         {
             object[] attrs = member.GetCustomAttributes(typeof(T),true);
             return attrs.Length > 0 ? (T)attrs[0] : null;
-        }
-
-        private static MemberInfo FindMemberByName(Type type,string name)
-        {
-            PropertyInfo prop = type.GetProperty(name,PUBLIC_INSTANCE);
-            if (prop != null) return prop;
-
-            FieldInfo field = type.GetField(name,PUBLIC_INSTANCE);
-            if (field != null) return field;
-
-            return null;
         }
 
         private static string GetFirstAlias(JsonAliasAttribute aliasAttr)
@@ -1677,58 +1661,7 @@ namespace RS.SimpleJsonUnity
             return result;
         }
 
-
-
-        // ── ParseNumber（含 double 兜底）───────────────────────────
-
-        protected static bool ParseNumber(string str,out object returnNumber)
-        {
-            // 尝试 long
-            long longVal;
-            if (long.TryParse(str,NumberStyles.Any,
-                CultureInfo.InvariantCulture,out longVal))
-            {
-                returnNumber = longVal;
-                return true;
-            }
-
-            // 尝试 ulong（正整数超 long 范围）
-            ulong ulongVal;
-            if (ulong.TryParse(str,NumberStyles.Any,
-                CultureInfo.InvariantCulture,out ulongVal))
-            {
-                returnNumber = ulongVal;
-                return true;
-            }
-
-            // double 兜底（超 ulong 范围或浮点数）
-            // 注：超过 2^53 的整数以 double 存储时存在精度损失，这是 JSON 的固有局限
-            double doubleVal;
-            if (double.TryParse(str,NumberStyles.Any,
-                CultureInfo.InvariantCulture,out doubleVal))
-            {
-                if (doubleVal != Math.Truncate(doubleVal) ||
-                    str.IndexOf('.') >= 0 || str.IndexOf('e') >= 0 ||
-                    str.IndexOf('E') >= 0)
-                {
-                    // 确实是浮点数
-                    returnNumber = doubleVal;
-                    return true;
-                }
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                Guard.LogWarning(
-                    "ParseNumber: \"" + str +
-                    "\" exceeds ulong range, stored as double. " +
-                    "Integers > 2^53 may lose precision.");
-#endif
-                returnNumber = doubleVal;
-                return true;
-            }
-
-            returnNumber = 0;
-            return false;
-        }
-        public virtual bool TryDeserializeObject(
+        protected virtual bool TryDeserializeObject(
             object value,Type type,out object output)
         {
             // 基础类型由 DeserializeObject 主流程处理，此处只处理 POCO
