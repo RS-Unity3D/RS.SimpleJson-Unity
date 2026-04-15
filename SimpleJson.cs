@@ -2706,6 +2706,9 @@ namespace RS.SimpleJsonUnity
         private static readonly Dictionary<string,Type> _aotTypeRegistry =
             new Dictionary<string,Type>();
 
+        private static readonly Dictionary<string,Func<object>> _aotFactoryRegistry =
+            new Dictionary<string,Func<object>>();
+
 #if SIMPLE_JSON_WEBGL
         // WebGL 单线程：无需锁
 #else
@@ -2733,6 +2736,32 @@ namespace RS.SimpleJsonUnity
         }
 
         /// <summary>
+        /// 注册AOT类型及其工厂委托。在AOT环境下，Activator.CreateInstance 可能失败，
+        /// 使用工厂委托可以确保类型实例的正确创建。
+        /// </summary>
+        /// <param name="typeName">类型全名（type.FullName）</param>
+        /// <param name="type">对应的Type</param>
+        /// <param name="factory">创建实例的工厂委托</param>
+        public static void RegisterAotType(string typeName,Type type,Func<object> factory)
+        {
+            if (type == null)
+                throw new ArgumentNullException("type");
+            if (factory == null)
+                throw new ArgumentNullException("factory");
+
+#if SIMPLE_JSON_WEBGL
+            _aotTypeRegistry[typeName] = type;
+            _aotFactoryRegistry[typeName] = factory;
+#else
+            lock (_registryLock)
+            {
+                _aotTypeRegistry[typeName] = type;
+                _aotFactoryRegistry[typeName] = factory;
+            }
+#endif
+        }
+
+        /// <summary>
         /// 获取已注册的AOT类型。
         /// </summary>
         /// <param name="typeName">类型名称</param>
@@ -2752,46 +2781,69 @@ namespace RS.SimpleJsonUnity
         }
 
         /// <summary>
+        /// 获取已注册的AOT工厂委托。
+        /// </summary>
+        /// <param name="typeName">类型名称</param>
+        /// <returns>工厂委托，未找到返回null</returns>
+        public static Func<object> GetRegisteredAotFactory(string typeName)
+        {
+#if SIMPLE_JSON_WEBGL
+            Func<object> factory;
+            return _aotFactoryRegistry.TryGetValue(typeName,out factory) ? factory : null;
+#else
+            lock (_registryLock)
+            {
+                Func<object> factory;
+                return _aotFactoryRegistry.TryGetValue(typeName,out factory) ? factory : null;
+            }
+#endif
+        }
+
+        /// <summary>
         /// 初始化常用的AOT类型注册。
         /// </summary>
         public static void InitializeCommonAotTypes()
         {
-            RegisterAotType("Dictionary<String,Object>",typeof(Dictionary<string,object>));
-            RegisterAotType("Dictionary<String,String>",typeof(Dictionary<string,string>));
-            RegisterAotType("Dictionary<String,Int32>",typeof(Dictionary<string,int>));
-            RegisterAotType("Dictionary<String,Int64>",typeof(Dictionary<string,long>));
-            RegisterAotType("Dictionary<String,Boolean>",typeof(Dictionary<string,bool>));
-            RegisterAotType("Dictionary<String,Double>",typeof(Dictionary<string,double>));
-            RegisterAotType("Dictionary<String,Single>",typeof(Dictionary<string,float>));
-            RegisterAotType("Dictionary<String,Decimal>",typeof(Dictionary<string,decimal>));
-            RegisterAotType("Dictionary<String,DateTime>",typeof(Dictionary<string,DateTime>));
-            RegisterAotType("Dictionary<String,Guid>",typeof(Dictionary<string,Guid>));
+            RegisterAotType("Dictionary<String,Object>",typeof(Dictionary<string,object>),() => new Dictionary<string,object>());
+            RegisterAotType("Dictionary<String,String>",typeof(Dictionary<string,string>),() => new Dictionary<string,string>());
+            RegisterAotType("Dictionary<String,Int32>",typeof(Dictionary<string,int>),() => new Dictionary<string,int>());
+            RegisterAotType("Dictionary<String,Int64>",typeof(Dictionary<string,long>),() => new Dictionary<string,long>());
+            RegisterAotType("Dictionary<String,Boolean>",typeof(Dictionary<string,bool>),() => new Dictionary<string,bool>());
+            RegisterAotType("Dictionary<String,Double>",typeof(Dictionary<string,double>),() => new Dictionary<string,double>());
+            RegisterAotType("Dictionary<String,Single>",typeof(Dictionary<string,float>),() => new Dictionary<string,float>());
+            RegisterAotType("Dictionary<String,Decimal>",typeof(Dictionary<string,decimal>),() => new Dictionary<string,decimal>());
+            RegisterAotType("Dictionary<String,DateTime>",typeof(Dictionary<string,DateTime>),() => new Dictionary<string,DateTime>());
+            RegisterAotType("Dictionary<String,Guid>",typeof(Dictionary<string,Guid>),() => new Dictionary<string,Guid>());
 
-            RegisterAotType("List<Object>",typeof(List<object>));
-            RegisterAotType("List<String>",typeof(List<string>));
-            RegisterAotType("List<Int32>",typeof(List<int>));
-            RegisterAotType("List<Int64>",typeof(List<long>));
-            RegisterAotType("List<Boolean>",typeof(List<bool>));
-            RegisterAotType("List<Double>",typeof(List<double>));
-            RegisterAotType("List<Single>",typeof(List<float>));
-            RegisterAotType("List<Decimal>",typeof(List<decimal>));
-            RegisterAotType("List<DateTime>",typeof(List<DateTime>));
-            RegisterAotType("List<Guid>",typeof(List<Guid>));
+            RegisterAotType("List<Object>",typeof(List<object>),() => new List<object>());
+            RegisterAotType("List<String>",typeof(List<string>),() => new List<string>());
+            RegisterAotType("List<Int32>",typeof(List<int>),() => new List<int>());
+            RegisterAotType("List<Int64>",typeof(List<long>),() => new List<long>());
+            RegisterAotType("List<Boolean>",typeof(List<bool>),() => new List<bool>());
+            RegisterAotType("List<Double>",typeof(List<double>),() => new List<double>());
+            RegisterAotType("List<Single>",typeof(List<float>),() => new List<float>());
+            RegisterAotType("List<Decimal>",typeof(List<decimal>),() => new List<decimal>());
+            RegisterAotType("List<DateTime>",typeof(List<DateTime>),() => new List<DateTime>());
+            RegisterAotType("List<Guid>",typeof(List<Guid>),() => new List<Guid>());
         }
 
         /// <summary>
-        /// AOT 安全的类型创建。优先使用已注册的 AOT 类型，避免 MakeGenericType 在 AOT 环境下失败。
+        /// AOT 安全的类型创建。优先使用已注册的工厂委托，避免 Activator.CreateInstance 在 AOT 环境下失败。
         /// </summary>
         /// <param name="type">要创建实例的类型</param>
         /// <returns>类型实例</returns>
         internal static object SafeCreateInstance(Type type)
         {
+            Func<object> factory = GetRegisteredAotFactory(type.FullName);
+            if (factory != null)
+                return factory();
+
             Type createType = GetRegisteredAotType(type.FullName) ?? type;
             return Activator.CreateInstance(createType);
         }
 
         /// <summary>
-        /// AOT 安全的 List 创建。优先使用已注册类型，避免 MakeGenericType。
+        /// AOT 安全的 List 创建。优先使用已注册工厂委托，避免 MakeGenericType。
         /// 失败时返回 null（不抛异常）。
         /// </summary>
         /// <param name="elementType">列表元素类型</param>
@@ -2799,6 +2851,13 @@ namespace RS.SimpleJsonUnity
         internal static IList SafeCreateList(Type elementType)
         {
             Type fallbackType = typeof(List<>).MakeGenericType(elementType);
+            Func<object> factory = GetRegisteredAotFactory(fallbackType.FullName);
+            if (factory != null)
+            {
+                try { return (IList)factory(); }
+                catch { return null; }
+            }
+
             Type aotType = GetRegisteredAotType(fallbackType.FullName) ?? fallbackType;
             try { return (IList)Activator.CreateInstance(aotType); }
             catch { return null; }
