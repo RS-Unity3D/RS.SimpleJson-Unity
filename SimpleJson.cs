@@ -34,6 +34,9 @@
 //// NOTE: uncomment the following line to make JsonArray and JsonObject class internal.
 //#define SIMPLE_JSON_OBJARRAYINTERNAL
 
+// NOTE: uncomment the following line to enable dynamic support.
+//#define SIMPLE_JSON_DYNAMIC
+
 ////NOTE: uncomment the following line to make ReflectionUtils class public.
 //#define SIMPLE_JSON_REFLECTION_UTILS_PUBLIC
 
@@ -58,13 +61,14 @@
 //NOTE:SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
 //#define SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
 
-//NOTE:Ignore the case of attributes/fields
-// SIMPLE_JSON_PropertyIgnoreLowerCase
-//     Define to make the default serialization strategy use
-//     lowercase JSON keys by default. Equivalent to setting
-//     DefaultJsonSerializationStrategy.toLowerCase = true.
+//NOTE:Ignore the case of property/field names during deserialization
+// SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE
+//     Define to make the default serialization strategy ignore
+//     property/field name casing during deserialization.
+//     Serialization always preserves original casing.
+//     Equivalent to setting DefaultJsonSerializationStrategy.ignoreLowerCaseForDeserialization = true.
 //
-//#define SIMPLE_JSON_PropertyIgnoreLowerCase
+#define SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE
 
 
 #if NET35 || NET20||NET40
@@ -98,6 +102,7 @@ using System;
 using System.CodeDom.Compiler;
 using System.Collections;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
@@ -109,7 +114,7 @@ using UnityEngine;
 
 namespace RS.SimpleJsonUnity
 {
-    #region .NET 3.5
+    #region .NET 2.0
 #if NET20
     // All these delegate are built-in .NET 3.5
     // Comment/Remove them when compiling to .NET 3.5 to avoid ambiguity.
@@ -203,9 +208,9 @@ namespace RS.SimpleJsonUnity
             return;
 #endif
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-        UnityEngine.Debug.LogWarning("[SimpleJson] " + message);
+            UnityEngine.Debug.LogWarning("[SimpleJson] " + message);
 #elif DEBUG
-            System.Diagnostics.Trace.TraceWarning("[SimpleJson] " + message);
+            Console.WriteLine("[SimpleJson] " + message);
 #endif
         }
 
@@ -217,39 +222,39 @@ namespace RS.SimpleJsonUnity
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         UnityEngine.Debug.LogError("[SimpleJson] " + message);
 #elif DEBUG
-            System.Diagnostics.Trace.TraceError("[SimpleJson] " + message);
+        Console.WriteLine("[SimpleJson] ERROR: " + message);
 #endif
         }
     }
 
     // ──────────────────────────────────────────────────────────────
-    // TypeCacheKey  （缓存复合 key，区分 toLowerCase 和 useJsonAlias 状态）
+    // TypeCacheKey  （缓存复合 key，区分 ignoreLowerCaseDeserialization 和 useJsonAlias 状态）
     // ──────────────────────────────────────────────────────────────
 
     public struct TypeCacheKey : IEquatable<TypeCacheKey>
     {
         public readonly Type Type;
-        public readonly bool ToLowerCase;
+        public readonly bool IgnoreLowerCase;
         public readonly bool UseJsonAlias;
 
-        public TypeCacheKey(Type type,bool toLowerCase)
+        public TypeCacheKey(Type type,bool ignoreLowerCase)
         {
             Type = type;
-            ToLowerCase = toLowerCase;
+            IgnoreLowerCase = ignoreLowerCase;
             UseJsonAlias = false;
         }
 
-        public TypeCacheKey(Type type,bool toLowerCase,bool useJsonAlias)
+        public TypeCacheKey(Type type,bool ignoreLowerCase,bool useJsonAlias)
         {
             Type = type;
-            ToLowerCase = toLowerCase;
+            IgnoreLowerCase = ignoreLowerCase;
             UseJsonAlias = useJsonAlias;
         }
 
         public bool Equals(TypeCacheKey other)
         {
             return Type == other.Type
-                && ToLowerCase == other.ToLowerCase
+                && IgnoreLowerCase == other.IgnoreLowerCase
                 && UseJsonAlias == other.UseJsonAlias;
         }
 
@@ -264,7 +269,7 @@ namespace RS.SimpleJsonUnity
             unchecked
             {
                 int h = (Type != null ? Type.GetHashCode() : 0);
-                h ^= ToLowerCase.GetHashCode();
+                h ^= IgnoreLowerCase.GetHashCode();
                 h = (h * 397) ^ UseJsonAlias.GetHashCode();
                 return h;
             }
@@ -588,6 +593,7 @@ namespace RS.SimpleJsonUnity
         /// </param>
         /// <returns>成功返回 true，交由调用方继续处理 output；
         /// 失败返回 false。</returns>
+        [SuppressMessage("Microsoft.Design","CA1007:UseGenericsWhereAppropriate",Justification = "Need to support .NET 2")]
         bool TrySerializeNonPrimitiveObject(object input,out object output);
 
         /// <summary>
@@ -596,9 +602,12 @@ namespace RS.SimpleJsonUnity
         /// </summary>
         /// <param name="value">JSON 解析器输出的原始值。</param>
         /// <param name="type">目标 .NET 类型。</param>
-        /// <param name="output">反序列化结果。</param>
-        /// <returns>成功返回 true；失败返回 false。</returns>
-        bool TryDeserializeObject(object value,Type type,out object output);
+        /// <returns>成功则返回反序列化结果对象否则为null</returns>
+        object DeserializeObject(object value,Type type);
+        /// <summary>
+        /// 清理序列化堆栈（用于循环引用检测）。通常在每次序列化/反序列化操作完成后调用，以避免内存泄漏。
+        /// </summary>
+        void ClearSerializationStack();
     }
 
 #if SIMPLE_JSON_INTERNAL
@@ -609,9 +618,11 @@ namespace RS.SimpleJsonUnity
     class DefaultJsonSerializationStrategy : IJsonSerializerStrategy
     {
         // volatile 保证多线程可见性
-        // 注：在多线程中动态切换 toLowerCase 不是线程安全的。
+        // 注：在多线程中动态切换 ignoreLowerCaseForDeserialization 不是线程安全的。
         // 建议在初始化阶段一次性设定，之后不再修改。
-        public volatile bool toLowerCase;
+        // ignoreLowerCaseForDeserialization=true 时：反序列化使用大小写无关匹配（OrdinalIgnoreCase），
+        // 序列化始终保留原始属性名大小写。
+        public volatile bool ignoreLowerCaseForDeserialization;
 
         // 控制序列化时是否使用 JsonAlias 的第一个别名作为输出键名
         // 默认 false（与 Newtonsoft.Json 行为一致）：序列化使用原始属性名
@@ -629,7 +640,7 @@ namespace RS.SimpleJsonUnity
             = new ThreadSafeDictionary<TypeCacheKey,
                 IDictionary<string,Func<object,object>>>();
 
-        // setter 缓存：反序列化 key 受 toLowerCase 影响，需要复合 key
+        // setter 缓存：反序列化 key 受 ignoreLowerCase 影响，需要复合 key
         protected static readonly ThreadSafeDictionary<TypeCacheKey,
             IDictionary<string,Action<object,object>>>
             _setterCache
@@ -650,20 +661,26 @@ namespace RS.SimpleJsonUnity
         [ThreadStatic]
         private static HashSet<object> t_serializationStack;
 
+        public void ClearSerializationStack()
+        {
+            if (t_serializationStack != null)
+                t_serializationStack.Clear();
+        }
+
         public DefaultJsonSerializationStrategy()
         {
-#if SIMPLE_JSON_PropertyIgnoreLowerCase
-        toLowerCase = true;
+#if SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE
+            ignoreLowerCaseForDeserialization = true;
 #else
-            toLowerCase = false;
+            ignoreLowerCaseForDeserialization = false;
 #endif
             useJsonAliasForSerialization = false;
         }
 
-        public DefaultJsonSerializationStrategy(bool toLowerCase,bool useJsonAliasForSerialization)
+        public DefaultJsonSerializationStrategy(bool ignoreLowerCaseDeserialization,bool useJsonAliasSerialization)
         {
-            this.toLowerCase = toLowerCase;
-            this.useJsonAliasForSerialization = useJsonAliasForSerialization;
+            this.ignoreLowerCaseForDeserialization = ignoreLowerCaseDeserialization;
+            this.useJsonAliasForSerialization = useJsonAliasSerialization;
         }
 
         // ── Attribute 辅助 ──────────────────────────────────────────
@@ -702,13 +719,12 @@ namespace RS.SimpleJsonUnity
         public string MapClrMemberNameToJsonFieldName(string clrName)
         {
             if (clrName == null) return clrName;
-            // 统一使用 InvariantCulture，避免土耳其语等特殊文化下 I→ı 的问题
-            return toLowerCase
-                ? clrName.ToLower(CultureInfo.InvariantCulture)
-                : clrName;
+            // SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE 仅影响反序列化（大小写无关匹配），
+            // 序列化始终保留原始属性名
+            return clrName;
         }
 
-        private static object CoerceValue(object val,Type targetType)
+        private static object CoerceValue(object val,Type targetType,IJsonSerializerStrategy strategy)
         {
             if (val == null) return null;
             if (targetType.IsAssignableFrom(val.GetType())) return val;
@@ -888,6 +904,12 @@ namespace RS.SimpleJsonUnity
                         {
                             result = (IList)Activator.CreateInstance(targetType);
                         }
+                        catch (MissingMethodException)
+                        {
+                            // 接口类型 fallback 到 List<elementType>
+                            Type fallbackType = typeof(List<>).MakeGenericType(elementType);
+                            result = (IList)Activator.CreateInstance(fallbackType);
+                        }
                         catch (Exception ex)
                         {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
@@ -899,17 +921,19 @@ namespace RS.SimpleJsonUnity
                         }
                     }
 
+                    int idx = 0;
                     foreach (object item in listVal)
                     {
-                        object convertedItem = CoerceValue(item,elementType);
+                        object convertedItem = CoerceValue(item,elementType,strategy);
                         if (targetType.IsArray)
                         {
-                            result[Convert.ToInt32(result.Count - 1)] = convertedItem;
+                            result[idx] = convertedItem;
                         }
                         else
                         {
                             result.Add(convertedItem);
                         }
+                        idx++;
                     }
                     return result;
                 }
@@ -944,12 +968,28 @@ namespace RS.SimpleJsonUnity
                         foreach (var kvp in dictVal)
                         {
                             object dictKey = ConvertDictionaryKey(kvp.Key,keyType);
-                            object dictValue = CoerceValue(kvp.Value,valueType);
+                            object dictValue = CoerceValue(kvp.Value,valueType,strategy);
                             result[dictKey] = dictValue;
                         }
                         return result;
                     }
                 }
+            }
+
+            // POCO 类型：IDictionary<string,object> → 目标 POCO（递归反序列化）
+            // 当 JSON 解析器将嵌套对象解析为 IDictionary<string,object>，
+            // 但目标类型不是字典类型时，需要递归调用 DeserializeObject 完成反序列化。
+            // 这是对原始 SimpleJson 中 TryDeserializeObject 递归反序列化逻辑的补充。
+            // 仅对可实例化的 POCO 类类型生效，排除 string/原始类型/值类型/字典/列表
+            IDictionary<string,object> pocoDict = val as IDictionary<string,object>;
+            if (pocoDict != null
+                && targetType.IsClass
+                && targetType != typeof(string)
+                && !typeof(IDictionary).IsAssignableFrom(targetType)
+                && !typeof(IList).IsAssignableFrom(targetType))
+            {
+                //return SimpleJson.DeserializeObject(pocoDict,targetType,SimpleJson.CurrentJsonSerializerStrategy);
+                return strategy.DeserializeObject(pocoDict,targetType);
             }
 
             // 通用转换：失败直接抛，由 setter 统一 catch + LogWarning（单点日志）
@@ -959,7 +999,7 @@ namespace RS.SimpleJsonUnity
         // ── BuildGetters ────────────────────────────────────────────
 
         private static IDictionary<string,Func<object,object>>
-            BuildGetters(Type type,bool useJsonAlias)
+            BuildGetters(Type type,bool useJsonAlias,IJsonSerializerStrategy strategy)
         {
             var getters = new Dictionary<string,Func<object,object>>();
             // seen：按成员名去重，优先最派生版本（GetProperties 返回顺序保证）
@@ -1063,9 +1103,12 @@ namespace RS.SimpleJsonUnity
         // ── BuildSetters ────────────────────────────────────────────
 
         private static IDictionary<string,Action<object,object>>
-            BuildSetters(Type type,bool toLowerCase)
+            BuildSetters(Type type,bool ignoreLowerCase,IJsonSerializerStrategy strategy)
         {
-            var setters = new Dictionary<string,Action<object,object>>();
+            // ignoreLowerCase=true 时使用大小写无关比较器，实现反序列化忽略大小写
+            var setters = ignoreLowerCase
+                ? new Dictionary<string,Action<object,object>>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string,Action<object,object>>();
             var seen = new HashSet<string>();
 
             Action<MemberInfo,Type,Action<object,object>> register =
@@ -1082,7 +1125,7 @@ namespace RS.SimpleJsonUnity
                     {
                         try
                         {
-                            rawSetter(obj,CoerceValue(val,capturedType));
+                            rawSetter(obj,CoerceValue(val,capturedType,strategy));
                         }
                         catch (Exception ex)
                         {
@@ -1096,19 +1139,16 @@ namespace RS.SimpleJsonUnity
                         }
                     };
 
-                    string originalKey = toLowerCase
-                    ? member.Name.ToLower(CultureInfo.InvariantCulture)
-                    : member.Name;
+                    // setter key 始终使用原始属性名；
+                    // ignoreLowerCase 的效果由字典的 OrdinalIgnoreCase 比较器实现
+                    string originalKey = member.Name;
 
                     JsonAliasAttribute aliasAttr = GetAttribute<JsonAliasAttribute>(member);
                     if (aliasAttr != null)
                     {
                         foreach (string alias in aliasAttr.Aliases)
                         {
-                            string aliasKey = toLowerCase
-                            ? alias.ToLower(CultureInfo.InvariantCulture)
-                            : alias;
-                            setters[aliasKey] = safeSetter;
+                            setters[alias] = safeSetter;
                         }
                         if (aliasAttr.AcceptOriginalName)
                         {
@@ -1168,14 +1208,14 @@ namespace RS.SimpleJsonUnity
     protected virtual IDictionary<string, Func<object, object>>
         GetOrBuildGetters(Type type)
     {
-        var cacheKey = new TypeCacheKey(type, toLowerCase, useJsonAliasForSerialization);
+        var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization, useJsonAliasForSerialization);
         IDictionary<string, Func<object, object>> cached;
         if (_getterCache.TryGetValue(cacheKey, out cached)) return cached;
         lock (_getterBuildLock)
         {
             if (_getterCache.TryGetValue(cacheKey, out cached)) return cached;
             IDictionary<string, Func<object, object>> built;
-            try   { built = BuildGetters(type, useJsonAliasForSerialization); }
+            try   { built = BuildGetters(type, useJsonAliasForSerialization,this); }
             catch (Exception ex)
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
@@ -1193,14 +1233,14 @@ namespace RS.SimpleJsonUnity
     protected virtual IDictionary<string, Action<object, object>>
         GetOrBuildSetters(Type type)
     {
-        var cacheKey = new TypeCacheKey(type, toLowerCase);
+        var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization);
         IDictionary<string, Action<object, object>> cached;
         if (_setterCache.TryGetValue(cacheKey, out cached)) return cached;
         lock (_setterBuildLock)
         {
             if (_setterCache.TryGetValue(cacheKey, out cached)) return cached;
             IDictionary<string, Action<object, object>> built;
-            try   { built = BuildSetters(type, toLowerCase); }
+            try   { built = BuildSetters(type,ignoreLowerCaseForDeserialization,this); }
             catch (Exception ex)
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
@@ -1219,7 +1259,7 @@ namespace RS.SimpleJsonUnity
         protected virtual IDictionary<string,Func<object,object>>
             GetOrBuildGetters(Type type)
         {
-            var cacheKey = new TypeCacheKey(type,toLowerCase,useJsonAliasForSerialization);
+            var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization,useJsonAliasForSerialization);
 
             _getterBuildLock.EnterReadLock();
             try
@@ -1235,7 +1275,7 @@ namespace RS.SimpleJsonUnity
                 IDictionary<string,Func<object,object>> cached;
                 if (_getterCache.TryGetValue(cacheKey,out cached)) return cached;
                 IDictionary<string,Func<object,object>> built;
-                try { built = BuildGetters(type,useJsonAliasForSerialization); }
+                try { built = BuildGetters(type,useJsonAliasForSerialization,this); }
                 catch (Exception ex)
                 {
 #if DEBUG
@@ -1253,7 +1293,7 @@ namespace RS.SimpleJsonUnity
         protected virtual IDictionary<string,Action<object,object>>
             GetOrBuildSetters(Type type)
         {
-            var cacheKey = new TypeCacheKey(type,toLowerCase);
+            var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization);
 
             _setterBuildLock.EnterReadLock();
             try
@@ -1269,7 +1309,7 @@ namespace RS.SimpleJsonUnity
                 IDictionary<string,Action<object,object>> cached;
                 if (_setterCache.TryGetValue(cacheKey,out cached)) return cached;
                 IDictionary<string,Action<object,object>> built;
-                try { built = BuildSetters(type,toLowerCase); }
+                try { built = BuildSetters(type,ignoreLowerCaseForDeserialization,this); }
                 catch (Exception ex)
                 {
 #if DEBUG
@@ -1359,10 +1399,24 @@ namespace RS.SimpleJsonUnity
         protected virtual bool TrySerializeUnknownTypes(
             object input,out object output)
         {
-            // 防御：null 不应到达此处（TrySerializeNonPrimitiveObject 入口已处理）
             if (input == null) { output = null; return false; }
 
-            // 循环引用检测
+            Type type = input.GetType();
+
+            if (type.IsPrimitive || type == typeof(string) || type == typeof(decimal))
+            {
+                output = null;
+                return false;
+            }
+
+            // 集合类型（IDictionary / IList）由 SerializeValue 主流程处理，
+            // 不应被当作 POCO 枚举属性（否则 List<int> 会输出 {"capacity":4,"count":3}）
+            if (input is IDictionary || input is IList)
+            {
+                output = null;
+                return false;
+            }
+
             if (t_serializationStack == null)
                 t_serializationStack = new HashSet<object>();
 
@@ -1374,42 +1428,306 @@ namespace RS.SimpleJsonUnity
                     input.GetType().FullName + "\". Object will be serialized as null.");
 #endif
                 output = null;
-                return false;
-            }
-
-            bool wasAdded = false;
-            try
-            {
-                wasAdded = t_serializationStack.Add(input);
-
-                Type type = input.GetType();
-                var result = new JsonObject();
-
-                IDictionary<string,Func<object,object>> getters =
-                    GetOrBuildGetters(type);
-
-                foreach (KeyValuePair<string,Func<object,object>> kvp in getters)
-                {
-                    // BuildGetters 已根据 useJsonAliasForSerialization 处理了键名
-                    // 当 useJsonAliasForSerialization=true 时，kvp.Key 已是别名
-                    // 当 useJsonAliasForSerialization=false 时，kvp.Key 是原始属性名
-                    string jsonKey = MapClrMemberNameToJsonFieldName(kvp.Key);
-                    object val = kvp.Value(input);
-                    result[jsonKey] = val;
-                }
-
-                output = result;
                 return true;
             }
-            finally
+
+            t_serializationStack.Add(input);
+
+            var result = new JsonObject();
+
+            IDictionary<string,Func<object,object>> getters =
+                GetOrBuildGetters(type);
+
+            foreach (KeyValuePair<string,Func<object,object>> kvp in getters)
             {
-                if (wasAdded)
-                    t_serializationStack.Remove(input);
+                string jsonKey = MapClrMemberNameToJsonFieldName(kvp.Key);
+                object val = kvp.Value(input);
+
+                if (val != null)
+                {
+                    object exportValue;
+                    if (TrySerializeNonPrimitiveObject(val,out exportValue))
+                        val = exportValue;
+                }
+
+                result[jsonKey] = val;
             }
+
+            output = result;
+            return true;
         }
 
         // ── TryDeserializeObject ────────────────────────────────────
+        public  object DeserializeObject(
+       object value,Type type)
+        {
+            if (type == null || value == null) return value;
+            IJsonSerializerStrategy jsonSerializerStrategy = this;
+            // string → 目标类型
+            string str = value as string;
+            if (str != null)
+            {
+                if (type == typeof(string)) return str;
+                if (type == typeof(Guid))
+                {
+                    if (str.Length == 0) return default(Guid);
+                    return new Guid(str);
+                }
+                if (type == typeof(Uri)) return new Uri(str);
+                if (type == typeof(char))
+                {
+                    if (str.Length == 1) return str[0];
+                    if (str.Length > 1)
+                    {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                        Guard.LogWarning(
+                            "DeserializeObject: string \"" + str +
+                            "\" truncated to char '" + str[0] + "'.");
+#endif
+                        return str[0];
+                    }
+                    return default(char);
+                }
+                if (type == typeof(DateTime))
+                {
+                    try
+                    {
+                        return DateTime.ParseExact(str,
+                            Constants.Iso8601Format,
+                            CultureInfo.InvariantCulture,
+                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+                    }
+                    catch (FormatException)
+                    {
+                        return Convert.ToDateTime(str,CultureInfo.InvariantCulture);
+                    }
+                }
+                if (type == typeof(DateTimeOffset))
+                {
+                    try
+                    {
+                        return DateTimeOffset.ParseExact(str,
+                           Constants.Iso8601Format,
+                            CultureInfo.InvariantCulture,
+                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+                    }
+                    catch (FormatException)
+                    {
+                        return DateTimeOffset.Parse(str,CultureInfo.InvariantCulture);
+                    }
+                }
+                if (type == typeof(TimeSpan))
+                {
+                    if (long.TryParse(str,out long ticks))
+                        return new TimeSpan(ticks);
+#if NET20 || NET35
+                    return TimeSpan.Parse(str);
+#else
+                    return TimeSpan.Parse(str,CultureInfo.InvariantCulture);
+#endif
+                }
+                if (type.IsEnum)
+                {
+#if !SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
+                    return Enum.Parse(type,str,true);
+#else
+                return Enum.ToObject(type,
+                    Convert.ChangeType(str,
+                        Enum.GetUnderlyingType(type),
+                        CultureInfo.InvariantCulture));
+#endif
+                }
+            }
 
+            // 数值 → 目标类型
+            if (value is long || value is int || value is double
+                || value is ulong || value is uint
+                || value is short || value is ushort
+                || value is byte || value is sbyte
+                || value is decimal || value is float)
+            {
+                if (type.IsEnum)
+                    return Enum.ToObject(type,
+                        Convert.ChangeType(value,
+                            Enum.GetUnderlyingType(type),
+                            CultureInfo.InvariantCulture));
+
+                if (type == typeof(int))
+                    return Convert.ToInt32(value,CultureInfo.InvariantCulture);
+                if (type == typeof(long))
+                    return Convert.ToInt64(value,CultureInfo.InvariantCulture);
+                if (type == typeof(short))
+                    return Convert.ToInt16(value,CultureInfo.InvariantCulture);
+                if (type == typeof(byte))
+                    return Convert.ToByte(value,CultureInfo.InvariantCulture);
+                if (type == typeof(sbyte))
+                    return Convert.ToSByte(value,CultureInfo.InvariantCulture);
+                if (type == typeof(uint))
+                    return Convert.ToUInt32(value,CultureInfo.InvariantCulture);
+                if (type == typeof(ulong))
+                    return Convert.ToUInt64(value,CultureInfo.InvariantCulture);
+                if (type == typeof(ushort))
+                    return Convert.ToUInt16(value,CultureInfo.InvariantCulture);
+                if (type == typeof(float))
+                    return Convert.ToSingle(value,CultureInfo.InvariantCulture);
+                if (type == typeof(double))
+                    return Convert.ToDouble(value,CultureInfo.InvariantCulture);
+                if (type == typeof(decimal))
+                    return Convert.ToDecimal(value,CultureInfo.InvariantCulture);
+
+                // 注：decimal 经 double 中间层存在精度截断，这是 JSON 数值的固有局限
+            }
+
+            // IList
+            IList<object> jsonArray = value as IList<object>;
+            if (jsonArray != null)
+            {
+                // ... 原有数组反序列化逻辑（elementType 推断 + LogWarning）
+                return DeserializeArray(jsonArray,type,jsonSerializerStrategy);
+            }
+
+            // IDictionary<string,object> → 字典或 POCO
+            IDictionary<string,object> jsonObj =
+                value as IDictionary<string,object>;
+            if (jsonObj != null)
+            {
+                object result;
+                if (TryDeserializeObject(jsonObj,type,out result))
+                    return result;
+
+                return result;
+            }
+
+            // 类型已匹配
+            if (type.IsAssignableFrom(value.GetType()))
+                return value;
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+            Guard.LogWarning(
+                "DeserializeObject: Cannot deserialize value of type \"" +
+                value.GetType().FullName + "\" to \"" + type.FullName +
+                "\". Returning raw value.");
+#endif
+            return value;
+        }
+
+        private static object DeserializeArray(
+            IList<object> jsonArray,Type type,
+            IJsonSerializerStrategy strategy)
+        {
+            Type elementType = null;
+
+            if (type.IsArray)
+            {
+                elementType = type.GetElementType();
+            }
+            else if (type.IsGenericType)
+            {
+                Type[] args = type.GetGenericArguments();
+                if (args.Length == 1) elementType = args[0];
+            }
+
+            if (elementType == null || elementType == typeof(object))
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                Guard.LogWarning(
+                    "DeserializeArray: Cannot determine element type for \"" +
+                    type.FullName + "\". Elements deserialized as object. " +
+                    "Consider using List<T> instead.");
+#endif
+                elementType = typeof(object);
+            }
+
+            IList list = new List<object>();
+            foreach (object item in jsonArray)
+                list.Add(strategy.DeserializeObject(item,elementType));
+
+            if (type.IsArray)
+            {
+                Array arr = Array.CreateInstance(elementType,list.Count);
+                for (int i = 0; i < list.Count; i++)
+                    arr.SetValue(list[i],i);
+                return arr;
+            }
+
+            // List<T> 或其他 IList
+            IList result;
+            try
+            {
+                result = (IList)Activator.CreateInstance(type);
+            }
+            catch (MissingMethodException)
+            {
+                // 接口类型（IList<T>/ICollection<T>/IEnumerable<T> 等）无法实例化，
+                // fallback 到 List<elementType>，与原始 SimpleJson 行为一致
+                Type fallbackType = typeof(List<>).MakeGenericType(elementType);
+                result = (IList)Activator.CreateInstance(fallbackType);
+            }
+            catch (Exception ex)
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                Guard.LogWarning(
+                    "DeserializeArray: Failed to create instance of \"" +
+                    type.FullName + "\". Falling back to List<object>. " + ex.Message);
+#endif
+                result = new List<object>();
+            }
+            foreach (object item in list)
+                result.Add(item);
+            return result;
+        }
+
+
+
+        // ── ParseNumber（含 double 兜底）───────────────────────────
+
+        protected static bool ParseNumber(string str,out object returnNumber)
+        {
+            // 尝试 long
+            long longVal;
+            if (long.TryParse(str,NumberStyles.Any,
+                CultureInfo.InvariantCulture,out longVal))
+            {
+                returnNumber = longVal;
+                return true;
+            }
+
+            // 尝试 ulong（正整数超 long 范围）
+            ulong ulongVal;
+            if (ulong.TryParse(str,NumberStyles.Any,
+                CultureInfo.InvariantCulture,out ulongVal))
+            {
+                returnNumber = ulongVal;
+                return true;
+            }
+
+            // double 兜底（超 ulong 范围或浮点数）
+            // 注：超过 2^53 的整数以 double 存储时存在精度损失，这是 JSON 的固有局限
+            double doubleVal;
+            if (double.TryParse(str,NumberStyles.Any,
+                CultureInfo.InvariantCulture,out doubleVal))
+            {
+                if (doubleVal != Math.Truncate(doubleVal) ||
+                    str.IndexOf('.') >= 0 || str.IndexOf('e') >= 0 ||
+                    str.IndexOf('E') >= 0)
+                {
+                    // 确实是浮点数
+                    returnNumber = doubleVal;
+                    return true;
+                }
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                Guard.LogWarning(
+                    "ParseNumber: \"" + str +
+                    "\" exceeds ulong range, stored as double. " +
+                    "Integers > 2^53 may lose precision.");
+#endif
+                returnNumber = doubleVal;
+                return true;
+            }
+
+            returnNumber = 0;
+            return false;
+        }
         public virtual bool TryDeserializeObject(
             object value,Type type,out object output)
         {
@@ -1473,8 +1791,8 @@ namespace RS.SimpleJsonUnity
                         continue;
                     }
                     // 索引器赋值：重复 key 后者覆盖前者，不抛异常
-                    dict[dictKey] = SimpleJson.DeserializeObject(
-                        kvp.Value,valueType,this);
+                    dict[dictKey] = this.DeserializeObject(
+                        kvp.Value,valueType);
                 }
 
                 output = dict;
@@ -1505,7 +1823,6 @@ namespace RS.SimpleJsonUnity
                 Action<object,object> setter;
                 if (setters.TryGetValue(kvp.Key,out setter))
                     setter(instance,kvp.Value);
-                // 无匹配 setter：静默跳过（JSON 中多余字段不报错）
             }
 
             output = instance;
@@ -1703,21 +2020,52 @@ namespace RS.SimpleJsonUnity
     // ──────────────────────────────────────────────────────────────
     // JsonObject  (IDictionary<string,object> 别名，保持原库接口)
     // ──────────────────────────────────────────────────────────────
-
+    /// <summary>
+    /// Represents the json object.
+    /// </summary>
+    [GeneratedCode("simple-json","1.0.0")]
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    [SuppressMessage("Microsoft.Naming","CA1710:IdentifiersShouldHaveCorrectSuffix")]
 #if SIMPLE_JSON_OBJARRAYINTERNAL
     internal
 #else
     public
 #endif
-    class JsonObject : Dictionary<string,object>
+   class JsonObject :
+#if SIMPLE_JSON_DYNAMIC
+ DynamicObject,
+#endif
+ IDictionary<string,object>
     {
+        /// <summary>
+        /// The internal member dictionary.
+        /// </summary>
+        private readonly Dictionary<string,object> _members;
+
+        /// <summary>
+        /// Initializes a new instance of <see cref="JsonObject"/>.
+        /// </summary>
+        public JsonObject()
+        {
+            _members = new Dictionary<string,object>();
+        }
+
+        /// <summary>
+        /// Initializes a new instance of <see cref="JsonObject"/>.
+        /// </summary>
+        /// <param name="comparer">The <see cref="T:System.Collections.Generic.IEqualityComparer`1"/> implementation to use when comparing keys, or null to use the default <see cref="T:System.Collections.Generic.EqualityComparer`1"/> for the type of the key.</param>
+        public JsonObject(IEqualityComparer<string> comparer)
+        {
+            _members = new Dictionary<string,object>(comparer);
+        }
+
         /// <summary>
         /// Gets the <see cref="System.Object"/> at the specified index.
         /// </summary>
         /// <value></value>
         public object this[int index]
         {
-            get { return GetAtIndex(this,index); }
+            get { return GetAtIndex(_members,index); }
         }
 
         internal static object GetAtIndex(IDictionary<string,object> obj,int index)
@@ -1731,6 +2079,174 @@ namespace RS.SimpleJsonUnity
                 if (i++ == index) return o.Value;
             return null;
         }
+
+        /// <summary>
+        /// Adds the specified key.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="value">The value.</param>
+        public void Add(string key,object value)
+        {
+            _members.Add(key,value);
+        }
+
+        /// <summary>
+        /// Determines whether the specified key contains key.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <returns>
+        ///     <c>true</c> if the specified key contains key; otherwise, <c>false</c>.
+        /// </returns>
+        public bool ContainsKey(string key)
+        {
+            return _members.ContainsKey(key);
+        }
+
+        /// <summary>
+        /// Gets the keys.
+        /// </summary>
+        /// <value>The keys.</value>
+        public ICollection<string> Keys
+        {
+            get { return _members.Keys; }
+        }
+
+        /// <summary>
+        /// Removes the specified key.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <returns></returns>
+        public bool Remove(string key)
+        {
+            return _members.Remove(key);
+        }
+
+        /// <summary>
+        /// Tries the get value.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="value">The value.</param>
+        /// <returns></returns>
+        public bool TryGetValue(string key,out object value)
+        {
+            return _members.TryGetValue(key,out value);
+        }
+
+        /// <summary>
+        /// Gets the values.
+        /// </summary>
+        /// <value>The values.</value>
+        public ICollection<object> Values
+        {
+            get { return _members.Values; }
+        }
+
+        /// <summary>
+        /// Gets or sets the <see cref="System.Object"/> with the specified key.
+        /// </summary>
+        /// <value></value>
+        public object this[string key]
+        {
+            get { return _members[key]; }
+            set { _members[key] = value; }
+        }
+
+        /// <summary>
+        /// Adds the specified item.
+        /// </summary>
+        /// <param name="item">The item.</param>
+        public void Add(KeyValuePair<string,object> item)
+        {
+            _members.Add(item.Key,item.Value);
+        }
+
+        /// <summary>
+        /// Clears this instance.
+        /// </summary>
+        public void Clear()
+        {
+            _members.Clear();
+        }
+
+        /// <summary>
+        /// Determines whether [contains] [the specified item].
+        /// </summary>
+        /// <param name="item">The item.</param>
+        /// <returns>
+        /// 	<c>true</c> if [contains] [the specified item]; otherwise, <c>false</c>.
+        /// </returns>
+        public bool Contains(KeyValuePair<string,object> item)
+        {
+            return _members.ContainsKey(item.Key) && _members[item.Key] == item.Value;
+        }
+
+        /// <summary>
+        /// Copies to.
+        /// </summary>
+        /// <param name="array">The array.</param>
+        /// <param name="arrayIndex">Index of the array.</param>
+        public void CopyTo(KeyValuePair<string,object>[] array,int arrayIndex)
+        {
+            if (array == null) throw new ArgumentNullException("array");
+            int num = Count;
+            foreach (KeyValuePair<string,object> kvp in this)
+            {
+                array[arrayIndex++] = kvp;
+                if (--num <= 0)
+                    return;
+            }
+        }
+
+        /// <summary>
+        /// Gets the count.
+        /// </summary>
+        /// <value>The count.</value>
+        public int Count
+        {
+            get { return _members.Count; }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether this instance is read only.
+        /// </summary>
+        /// <value>
+        /// 	<c>true</c> if this instance is read only; otherwise, <c>false</c>.
+        /// </value>
+        public bool IsReadOnly
+        {
+            get { return false; }
+        }
+
+        /// <summary>
+        /// Removes the specified item.
+        /// </summary>
+        /// <param name="item">The item.</param>
+        /// <returns></returns>
+        public bool Remove(KeyValuePair<string,object> item)
+        {
+            return _members.Remove(item.Key);
+        }
+
+        /// <summary>
+        /// Gets the enumerator.
+        /// </summary>
+        /// <returns></returns>
+        public IEnumerator<KeyValuePair<string,object>> GetEnumerator()
+        {
+            return _members.GetEnumerator();
+        }
+
+        /// <summary>
+        /// Returns an enumerator that iterates through a collection.
+        /// </summary>
+        /// <returns>
+        /// An <see cref="T:System.Collections.IEnumerator"/> object that can be used to iterate through the collection.
+        /// </returns>
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return _members.GetEnumerator();
+        }
+
         /// <summary>
         /// Returns a json <see cref="T:System.String"/> that represents the current <see cref="T:System.Object"/>.
         /// </summary>
@@ -1741,12 +2257,152 @@ namespace RS.SimpleJsonUnity
         {
             return SimpleJson.SerializeObject(this);
         }
-    }
 
+#if SIMPLE_JSON_DYNAMIC
+        /// <summary>
+        /// Provides implementation for type conversion operations. Classes derived from the <see cref="T:System.Dynamic.DynamicObject"/> class can override this method to specify dynamic behavior for operations that convert an object from one type to another.
+        /// </summary>
+        /// <param name="binder">Provides information about the conversion operation. The binder.Type property provides the type to which the object must be converted. For example, for the statement (String)sampleObject in C# (CType(sampleObject, Type) in Visual Basic), where sampleObject is an instance of the class derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, binder.Type returns the <see cref="T:System.String"/> type. The binder.Explicit property provides information about the kind of conversion that occurs. It returns true for explicit conversion and false for implicit conversion.</param>
+        /// <param name="result">The result of the type conversion operation.</param>
+        /// <returns>
+        /// Always returns true.
+        /// </returns>
+        public override bool TryConvert(ConvertBinder binder, out object result)
+        {
+            // <pex>
+            if (binder == null)
+                throw new ArgumentNullException("binder");
+            // </pex>
+            Type targetType = binder.Type;
+
+            if ((targetType == typeof(IEnumerable)) ||
+                (targetType == typeof(IEnumerable<KeyValuePair<string, object>>)) ||
+                (targetType == typeof(IDictionary<string, object>)) ||
+                (targetType == typeof(IDictionary)))
+            {
+                result = this;
+                return true;
+            }
+
+            return base.TryConvert(binder, out result);
+        }
+
+        /// <summary>
+        /// Provides the implementation for operations that delete an object member. This method is not intended for use in C# or Visual Basic.
+        /// </summary>
+        /// <param name="binder">Provides information about the deletion.</param>
+        /// <returns>
+        /// Always returns true.
+        /// </returns>
+        public override bool TryDeleteMember(DeleteMemberBinder binder)
+        {
+            // <pex>
+            if (binder == null)
+                throw new ArgumentNullException("binder");
+            // </pex>
+            return _members.Remove(binder.Name);
+        }
+
+        /// <summary>
+        /// Provides the implementation for operations that get a value by index. Classes derived from the <see cref="T:System.Dynamic.DynamicObject"/> class can override this method to specify dynamic behavior for indexing operations.
+        /// </summary>
+        /// <param name="binder">Provides information about the operation.</param>
+        /// <param name="indexes">The indexes that are used in the operation. For example, for the sampleObject[3] operation in C# (sampleObject(3) in Visual Basic), where sampleObject is derived from the DynamicObject class, <paramref name="indexes"/> is equal to 3.</param>
+        /// <param name="result">The result of the index operation.</param>
+        /// <returns>
+        /// Always returns true.
+        /// </returns>
+        public override bool TryGetIndex(GetIndexBinder binder, object[] indexes, out object result)
+        {
+            if (indexes == null) throw new ArgumentNullException("indexes");
+            if (indexes.Length == 1)
+            {
+                result = ((IDictionary<string, object>)this)[(string)indexes[0]];
+                return true;
+            }
+            result = null;
+            return true;
+        }
+
+        /// <summary>
+        /// Provides the implementation for operations that get member values. Classes derived from the <see cref="T:System.Dynamic.DynamicObject"/> class can override this method to specify dynamic behavior for operations such as getting a value for a property.
+        /// </summary>
+        /// <param name="binder">Provides information about the object that called the dynamic operation. The binder.Name property provides the name of the member on which the dynamic operation is performed. For example, for the Console.WriteLine(sampleObject.SampleProperty) statement, where sampleObject is an instance of the class derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, binder.Name returns "SampleProperty". The binder.IgnoreCase property specifies whether the member name is case-sensitive.</param>
+        /// <param name="result">The result of the get operation. For example, if the method is called for a property, you can assign the property value to <paramref name="result"/>.</param>
+        /// <returns>
+        /// Always returns true.
+        /// </returns>
+        public override bool TryGetMember(GetMemberBinder binder, out object result)
+        {
+            object value;
+            if (_members.TryGetValue(binder.Name, out value))
+            {
+                result = value;
+                return true;
+            }
+            result = null;
+            return true;
+        }
+
+        /// <summary>
+        /// Provides the implementation for operations that set a value by index. Classes derived from the <see cref="T:System.Dynamic.DynamicObject"/> class can override this method to specify dynamic behavior for operations that access objects by a specified index.
+        /// </summary>
+        /// <param name="binder">Provides information about the operation.</param>
+        /// <param name="indexes">The indexes that are used in the operation. For example, for the sampleObject[3] = 10 operation in C# (sampleObject(3) = 10 in Visual Basic), where sampleObject is derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, <paramref name="indexes"/> is equal to 3.</param>
+        /// <param name="value">The value to set to the object that has the specified index. For example, for the sampleObject[3] = 10 operation in C# (sampleObject(3) = 10 in Visual Basic), where sampleObject is derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, <paramref name="value"/> is equal to 10.</param>
+        /// <returns>
+        /// true if the operation is successful; otherwise, false. If this method returns false, the run-time binder of the language determines the behavior. (In most cases, a language-specific run-time exception is thrown.
+        /// </returns>
+        public override bool TrySetIndex(SetIndexBinder binder, object[] indexes, object value)
+        {
+            if (indexes == null) throw new ArgumentNullException("indexes");
+            if (indexes.Length == 1)
+            {
+                ((IDictionary<string, object>)this)[(string)indexes[0]] = value;
+                return true;
+            }
+            return base.TrySetIndex(binder, indexes, value);
+        }
+
+        /// <summary>
+        /// Provides the implementation for operations that set member values. Classes derived from the <see cref="T:System.Dynamic.DynamicObject"/> class can override this method to specify dynamic behavior for operations such as setting a value for a property.
+        /// </summary>
+        /// <param name="binder">Provides information about the object that called the dynamic operation. The binder.Name property provides the name of the member to which the value is being assigned. For example, for the statement sampleObject.SampleProperty = "Test", where sampleObject is an instance of the class derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, binder.Name returns "SampleProperty". The binder.IgnoreCase property specifies whether the member name is case-sensitive.</param>
+        /// <param name="value">The value to set to the member. For example, for sampleObject.SampleProperty = "Test", where sampleObject is an instance of the class derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, the <paramref name="value"/> is "Test".</param>
+        /// <returns>
+        /// true if the operation is successful; otherwise, false. If this method returns false, the run-time binder of the language determines the behavior. (In most cases, a language-specific run-time exception is thrown.)
+        /// </returns>
+        public override bool TrySetMember(SetMemberBinder binder, object value)
+        {
+            // <pex>
+            if (binder == null)
+                throw new ArgumentNullException("binder");
+            // </pex>
+            _members[binder.Name] = value;
+            return true;
+        }
+
+        /// <summary>
+        /// Returns the enumeration of all dynamic member names.
+        /// </summary>
+        /// <returns>
+        /// A sequence that contains dynamic member names.
+        /// </returns>
+        public override IEnumerable<string> GetDynamicMemberNames()
+        {
+            foreach (var key in Keys)
+                yield return key;
+        }
+#endif
+    }
     // ──────────────────────────────────────────────────────────────
     // JsonArray  (IList<object> 别名，保持原库接口)
     // ──────────────────────────────────────────────────────────────
-
+    /// Represents the json array.
+    /// </summary>
+    [GeneratedCode("simple-json","1.0.0")]
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    [SuppressMessage("Microsoft.Naming","CA1710:IdentifiersShouldHaveCorrectSuffix")]
 #if SIMPLE_JSON_OBJARRAYINTERNAL
     internal
 #else
@@ -1786,345 +2442,421 @@ namespace RS.SimpleJsonUnity
     /// </summary>
     internal static class JsonParser
     {
+        internal const int TOKEN_NONE = 0;
+        internal const int TOKEN_CURLY_OPEN = 1;
+        internal const int TOKEN_CURLY_CLOSE = 2;
+        internal const int TOKEN_SQUARED_OPEN = 3;
+        internal const int TOKEN_SQUARED_CLOSE = 4;
+        internal const int TOKEN_COLON = 5;
+        internal const int TOKEN_COMMA = 6;
+        internal const int TOKEN_STRING = 7;
+        internal const int TOKEN_NUMBER = 8;
+        internal const int TOKEN_TRUE = 9;
+        internal const int TOKEN_FALSE = 10;
+        internal const int TOKEN_NULL = 11;
+        internal const int BUILDER_CAPACITY = 2000;
+
+        internal static readonly char[] EscapeTable;
+        internal static readonly char[] EscapeCharacters = new char[] { '"', '\\',
+            '\x00', '\x01', '\x02', '\x03', '\x04', '\x05', '\x06', '\x07',
+            '\x08', '\x09', '\x0a', '\x0b', '\x0c', '\x0d', '\x0e', '\x0f',
+            '\x10', '\x11', '\x12', '\x13', '\x14', '\x15', '\x16', '\x17',
+            '\x18', '\x19', '\x1a', '\x1b', '\x1c', '\x1d', '\x1e', '\x1f'
+        };
+
+        static JsonParser()
+        {
+            EscapeTable = new char[93];
+            EscapeTable['"'] = '"';
+            EscapeTable['\\'] = '\\';
+            EscapeTable['\b'] = 'b';
+            EscapeTable['\f'] = 'f';
+            EscapeTable['\n'] = 'n';
+            EscapeTable['\r'] = 'r';
+            EscapeTable['\t'] = 't';
+        }
         // ── 公开入口 ────────────────────────────────────────────
 
-        public static bool TryParse(string json,out object value)
+        public static bool TryParse(string json,out object obj)
         {
             if (string.IsNullOrEmpty(json))
             {
-                value = null;
+                obj = null;
                 return false;
             }
-
+            bool success = true;
+            char[] charArray = json.ToCharArray();
             int index = 0;
-            bool success = TryParseValue(json,ref index,out value);
+            obj = ParseValue(charArray,ref index,ref success);
             return success;
         }
 
         // ── 核心解析 ────────────────────────────────────────────
 
-        private static bool TryParseValue(
-            string json,ref int index,out object value)
+        static IDictionary<string,object> ParseObject(char[] json,ref int index,ref bool success)
         {
-            SkipWhitespace(json,ref index);
+            IDictionary<string,object> table = new JsonObject();
+            int token;
 
-            if (index >= json.Length)
+            // {
+            NextToken(json,ref index);
+
+            bool done = false;
+            while (!done)
             {
-                value = null;
-                return false;
-            }
-
-            char c = json[index];
-
-            if (c == '"')
-                return TryParseString(json,ref index,out value);
-
-            if (c == '{')
-                return TryParseObject(json,ref index,out value);
-
-            if (c == '[')
-                return TryParseArray(json,ref index,out value);
-
-            if (c == 't' || c == 'f')
-                return TryParseBool(json,ref index,out value);
-
-            if (c == 'n')
-                return TryParseNull(json,ref index,out value);
-
-            if (c == '-' || (c >= '0' && c <= '9'))
-                return TryParseNumber(json,ref index,out value);
-
-            value = null;
-            return false;
-        }
-
-        // ── Object ──────────────────────────────────────────────
-
-        private static bool TryParseObject(
-            string json,ref int index,out object value)
-        {
-            var dict = new JsonObject();
-            value = dict;
-
-            // 跳过 '{'
-            index++;
-
-            while (true)
-            {
-                SkipWhitespace(json,ref index);
-                if (index >= json.Length) return false;
-
-                char c = json[index];
-
-                if (c == '}') { index++; return true; }
-                if (c == ',') { index++; continue; }
-
-                // key
-                object keyObj;
-                if (!TryParseString(json,ref index,out keyObj))
-                    return false;
-                string key = (string)keyObj;
-
-                SkipWhitespace(json,ref index);
-                if (index >= json.Length || json[index] != ':') return false;
-                index++; // 跳过 ':'
-
-                // value
-                object val;
-                if (!TryParseValue(json,ref index,out val)) return false;
-
-                // 重复 key：后者覆盖前者（与主流 JSON 库行为一致）
-                dict[key] = val;
-            }
-        }
-
-        // ── Array ───────────────────────────────────────────────
-
-        private static bool TryParseArray(
-            string json,ref int index,out object value)
-        {
-            var list = new List<object>();
-            value = list;
-
-            // 跳过 '['
-            index++;
-
-            while (true)
-            {
-                SkipWhitespace(json,ref index);
-                if (index >= json.Length) return false;
-
-                char c = json[index];
-
-                if (c == ']') { index++; return true; }
-                if (c == ',') { index++; continue; }
-
-                object item;
-                if (!TryParseValue(json,ref index,out item)) return false;
-                list.Add(item);
-            }
-        }
-
-        // ── String ──────────────────────────────────────────────
-
-        private static bool TryParseString(
-            string json,ref int index,out object value)
-        {
-            var sb = new StringBuilder();
-            value = null;
-
-            SkipWhitespace(json,ref index);
-            if (index >= json.Length || json[index] != '"') return false;
-            index++; // 跳过开头 '"'
-
-            while (index < json.Length)
-            {
-                char c = json[index++];
-
-                if (c == '"')
+                token = LookAhead(json,index);
+                if (token == TOKEN_NONE)
                 {
-                    value = sb.ToString();
-                    return true;
+                    success = false;
+                    return null;
                 }
-
-                if (c != '\\')
+                else if (token == TOKEN_COMMA)
+                    NextToken(json,ref index);
+                else if (token == TOKEN_CURLY_CLOSE)
                 {
-                    sb.Append(c);
-                    continue;
+                    NextToken(json,ref index);
+                    return table;
                 }
-
-                // 转义序列
-                if (index >= json.Length) return false;
-                char esc = json[index++];
-
-                switch (esc)
-                {
-                    case '"': sb.Append('"'); break;
-                    case '\\': sb.Append('\\'); break;
-                    case '/': sb.Append('/'); break;
-                    case 'b': sb.Append('\b'); break;
-                    case 'f': sb.Append('\f'); break;
-                    case 'n': sb.Append('\n'); break;
-                    case 'r': sb.Append('\r'); break;
-                    case 't': sb.Append('\t'); break;
-                    case 'u':
-                        // \uXXXX
-                        if (index + 4 > json.Length) return false;
-                        string hex = json.Substring(index,4);
-                        index += 4;
-                        int codePoint;
-                        if (!TryParseHex(hex,out codePoint)) return false;
-
-                        // 处理 UTF-16 代理对
-                        if (codePoint >= 0xD800 && codePoint <= 0xDBFF)
-                        {
-                            // 高代理，期望紧跟 \uXXXX 低代理
-                            if (index + 6 <= json.Length &&
-                                json[index] == '\\' && json[index + 1] == 'u')
-                            {
-                                string hex2 = json.Substring(index + 2,4);
-                                int lowSurrogate;
-                                if (TryParseHex(hex2,out lowSurrogate) &&
-                                    lowSurrogate >= 0xDC00 &&
-                                    lowSurrogate <= 0xDFFF)
-                                {
-                                    index += 6;
-                                    int fullCodePoint =
-                                        0x10000 +
-                                        ((codePoint - 0xD800) << 10) +
-                                        (lowSurrogate - 0xDC00);
-                                    sb.Append(char.ConvertFromUtf32(
-                                        fullCodePoint));
-                                    break;
-                                }
-                            }
-                        }
-                        sb.Append((char)codePoint);
-                        break;
-
-                    default:
-                        // 未知转义：原样保留（宽松处理）
-                        sb.Append(esc);
-                        break;
-                }
-            }
-
-            return false; // 未找到闭合 '"'
-        }
-
-        private static bool TryParseHex(string hex,out int result)
-        {
-            result = 0;
-            for (int i = 0; i < hex.Length; i++)
-            {
-                char c = hex[i];
-                int digit;
-                if (c >= '0' && c <= '9') digit = c - '0';
-                else if (c >= 'a' && c <= 'f') digit = c - 'a' + 10;
-                else if (c >= 'A' && c <= 'F') digit = c - 'A' + 10;
-                else return false;
-                result = (result << 4) | digit;
-            }
-            return true;
-        }
-
-        // ── Number ──────────────────────────────────────────────
-
-        private static bool TryParseNumber(
-            string json,ref int index,out object value)
-        {
-            int start = index;
-
-            if (index < json.Length && json[index] == '-') index++;
-
-            while (index < json.Length &&
-                   json[index] >= '0' && json[index] <= '9')
-                index++;
-
-            bool isFloat = false;
-
-            if (index < json.Length && json[index] == '.')
-            {
-                isFloat = true;
-                index++;
-                while (index < json.Length &&
-                       json[index] >= '0' && json[index] <= '9')
-                    index++;
-            }
-
-            if (index < json.Length &&
-                (json[index] == 'e' || json[index] == 'E'))
-            {
-                isFloat = true;
-                index++;
-                if (index < json.Length &&
-                    (json[index] == '+' || json[index] == '-'))
-                    index++;
-                while (index < json.Length &&
-                       json[index] >= '0' && json[index] <= '9')
-                    index++;
-            }
-
-            string numStr = json.Substring(start,index - start);
-
-            if (isFloat)
-            {
-                double d;
-                if (!double.TryParse(numStr,NumberStyles.Float,
-                    CultureInfo.InvariantCulture,out d))
-                {
-                    value = null;
-                    return false;
-                }
-                value = d;
-                return true;
-            }
-
-            // 整数：long → ulong → double 兜底
-            object parsed;
-            bool ok = SimpleJson.ParseNumber(numStr,out parsed);
-            value = parsed;
-            return ok;
-        }
-
-        // ── Bool ────────────────────────────────────────────────
-
-        private static bool TryParseBool(
-            string json,ref int index,out object value)
-        {
-            if (json.Length - index >= 4 &&
-                json[index] == 't' && json[index + 1] == 'r' &&
-                json[index + 2] == 'u' && json[index + 3] == 'e')
-            {
-                index += 4;
-                value = true;
-                return true;
-            }
-
-            if (json.Length - index >= 5 &&
-                json[index] == 'f' && json[index + 1] == 'a' &&
-                json[index + 2] == 'l' && json[index + 3] == 's' &&
-                json[index + 4] == 'e')
-            {
-                index += 5;
-                value = false;
-                return true;
-            }
-
-            value = null;
-            return false;
-        }
-
-        // ── Null ────────────────────────────────────────────────
-
-        private static bool TryParseNull(
-            string json,ref int index,out object value)
-        {
-            if (json.Length - index >= 4 &&
-                json[index] == 'n' && json[index + 1] == 'u' &&
-                json[index + 2] == 'l' && json[index + 3] == 'l')
-            {
-                index += 4;
-                value = null;
-                return true;
-            }
-
-            value = null;
-            return false;
-        }
-
-        // ── Whitespace ──────────────────────────────────────────
-
-        private static void SkipWhitespace(string json,ref int index)
-        {
-            while (index < json.Length)
-            {
-                char c = json[index];
-                if (c == ' ' || c == '\t' || c == '\n' || c == '\r')
-                    index++;
                 else
+                {
+                    // name
+                    string name = ParseString(json,ref index,ref success);
+                    if (!success)
+                    {
+                        success = false;
+                        return null;
+                    }
+                    // :
+                    token = NextToken(json,ref index);
+                    if (token != TOKEN_COLON)
+                    {
+                        success = false;
+                        return null;
+                    }
+                    // value
+                    object value = ParseValue(json,ref index,ref success);
+                    if (!success)
+                    {
+                        success = false;
+                        return null;
+                    }
+                    table[name] = value;
+                }
+            }
+            return table;
+        }
+
+        static JsonArray ParseArray(char[] json,ref int index,ref bool success)
+        {
+            JsonArray array = new JsonArray();
+
+            // [
+            NextToken(json,ref index);
+
+            bool done = false;
+            while (!done)
+            {
+                int token = LookAhead(json,index);
+                if (token == TOKEN_NONE)
+                {
+                    success = false;
+                    return null;
+                }
+                else if (token == TOKEN_COMMA)
+                    NextToken(json,ref index);
+                else if (token == TOKEN_SQUARED_CLOSE)
+                {
+                    NextToken(json,ref index);
+                    break;
+                }
+                else
+                {
+                    object value = ParseValue(json,ref index,ref success);
+                    if (!success)
+                        return null;
+                    array.Add(value);
+                }
+            }
+            return array;
+        }
+
+        static object ParseValue(char[] json,ref int index,ref bool success)
+        {
+            switch (LookAhead(json,index))
+            {
+                case TOKEN_STRING:
+                    return ParseString(json,ref index,ref success);
+                case TOKEN_NUMBER:
+                    return ParseNumber(json,ref index,ref success);
+                case TOKEN_CURLY_OPEN:
+                    return ParseObject(json,ref index,ref success);
+                case TOKEN_SQUARED_OPEN:
+                    return ParseArray(json,ref index,ref success);
+                case TOKEN_TRUE:
+                    NextToken(json,ref index);
+                    return true;
+                case TOKEN_FALSE:
+                    NextToken(json,ref index);
+                    return false;
+                case TOKEN_NULL:
+                    NextToken(json,ref index);
+                    return null;
+                case TOKEN_NONE:
                     break;
             }
+            success = false;
+            return null;
+        }
+
+        static string ParseString(char[] json,ref int index,ref bool success)
+        {
+            //不初始就创建一个new StringBuilder(BUILDER_CAPACITY)，避免无效内存消耗
+            StringBuilder s = null;
+            char c;
+
+            EatWhitespace(json,ref index);
+
+            // "
+            c = json[index++];
+
+            int startIndex = index;
+            bool complete = false;
+            while (!complete)
+            {
+                if (index == json.Length)
+                    break;
+
+                c = json[index++];
+                if (c == '"')
+                {
+                    complete = true;
+                    break;
+                }
+                else if (c == '\\')
+                {
+                    if (s == null)
+                    {
+                        s = new StringBuilder(BUILDER_CAPACITY);
+                        for (int i = startIndex; i < index - 1; i++)
+                            s.Append(json[i]);
+                    }
+
+                    if (index == json.Length)
+                        break;
+                    c = json[index++];
+                    if (c == '"')
+                        s.Append('"');
+                    else if (c == '\\')
+                        s.Append('\\');
+                    else if (c == '/')
+                        s.Append('/');
+                    else if (c == 'b')
+                        s.Append('\b');
+                    else if (c == 'f')
+                        s.Append('\f');
+                    else if (c == 'n')
+                        s.Append('\n');
+                    else if (c == 'r')
+                        s.Append('\r');
+                    else if (c == 't')
+                        s.Append('\t');
+                    else if (c == 'u')
+                    {
+                        int remainingLength = json.Length - index;
+                        if (remainingLength >= 4)
+                        {
+                            // parse the 32 bit hex into an integer codepoint
+                            uint codePoint;
+                            if (!(success = UInt32.TryParse(new string(json,index,4),NumberStyles.HexNumber,CultureInfo.InvariantCulture,out codePoint)))
+                                return "";
+
+                            // convert the integer codepoint to a unicode char and add to string
+                            if (0xD800 <= codePoint && codePoint <= 0xDBFF)  // if high surrogate
+                            {
+                                index += 4; // skip 4 chars
+                                remainingLength = json.Length - index;
+                                if (remainingLength >= 6)
+                                {
+                                    uint lowCodePoint;
+                                    if (new string(json,index,2) == "\\u" && UInt32.TryParse(new string(json,index + 2,4),NumberStyles.HexNumber,CultureInfo.InvariantCulture,out lowCodePoint))
+                                    {
+                                        if (0xDC00 <= lowCodePoint && lowCodePoint <= 0xDFFF)    // if low surrogate
+                                        {
+                                            s.Append((char)codePoint);
+                                            s.Append((char)lowCodePoint);
+                                            index += 6; // skip 6 chars
+                                            continue;
+                                        }
+                                    }
+                                }
+                                success = false;    // invalid surrogate pair
+                                return "";
+                            }
+                            s.Append(ConvertFromUtf32((int)codePoint));
+                            // skip 4 chars
+                            index += 4;
+                        }
+                        else
+                            break;
+                    }
+                }
+                else
+                {
+                    if (s != null)
+                        s.Append(c);
+                }
+            }
+            if (!complete)
+            {
+                success = false;
+                return null;
+            }
+
+            if (s != null)
+                return s.ToString();
+
+            return new string(json,startIndex,index - startIndex - 1);
+        }
+
+        private static string ConvertFromUtf32(int utf32)
+        {
+            // http://www.java2s.com/Open-Source/CSharp/2.6.4-mono-.net-core/System/System/Char.cs.htm
+            if (utf32 < 0 || utf32 > 0x10FFFF)
+                throw new ArgumentOutOfRangeException("utf32","The argument must be from 0 to 0x10FFFF.");
+            if (0xD800 <= utf32 && utf32 <= 0xDFFF)
+                throw new ArgumentOutOfRangeException("utf32","The argument must not be in surrogate pair range.");
+            if (utf32 < 0x10000)
+                return new string((char)utf32,1);
+            utf32 -= 0x10000;
+            return new string(new char[] { (char)((utf32 >> 10) + 0xD800),(char)(utf32 % 0x0400 + 0xDC00) });
+        }
+
+        static object ParseNumber(char[] json,ref int index,ref bool success)
+        {
+            EatWhitespace(json,ref index);
+            int lastIndex = GetLastIndexOfNumber(json,index);
+            int charLength = (lastIndex - index) + 1;
+            object returnNumber;
+            string str = new string(json,index,charLength);
+            if (str.IndexOf(".",StringComparison.OrdinalIgnoreCase) != -1 || str.IndexOf("e",StringComparison.OrdinalIgnoreCase) != -1)
+            {
+                double number;
+                success = double.TryParse(new string(json,index,charLength),NumberStyles.Any,CultureInfo.InvariantCulture,out number);
+                returnNumber = number;
+            }
+            else
+            {
+                long number;
+                if (long.TryParse(str,NumberStyles.Any,CultureInfo.InvariantCulture,out number))
+                {
+                    returnNumber = number;
+                }
+                else
+                {
+                    ulong ulongNumber;
+                    if (ulong.TryParse(str,NumberStyles.Any,CultureInfo.InvariantCulture,out ulongNumber))
+                    {
+                        returnNumber = ulongNumber;
+                    }
+                    else
+                    {
+                        double doubleNumber;
+                        success = double.TryParse(str,NumberStyles.Any,CultureInfo.InvariantCulture,out doubleNumber);
+                        returnNumber = doubleNumber;
+                    }
+                }
+            }
+            index = lastIndex + 1;
+            return returnNumber;
+        }
+
+        static int GetLastIndexOfNumber(char[] json,int index)
+        {
+            int lastIndex;
+            for (lastIndex = index; lastIndex < json.Length; lastIndex++)
+                if ("0123456789+-.eE".IndexOf(json[lastIndex]) == -1) break;
+            return lastIndex - 1;
+        }
+
+        static void EatWhitespace(char[] json,ref int index)
+        {
+            for (; index < json.Length; index++)
+                if (" \t\n\r\b\f".IndexOf(json[index]) == -1) break;
+        }
+
+        static int LookAhead(char[] json,int index)
+        {
+            int saveIndex = index;
+            return NextToken(json,ref saveIndex);
+        }
+
+        [SuppressMessage("Microsoft.Maintainability","CA1502:AvoidExcessiveComplexity")]
+        static int NextToken(char[] json,ref int index)
+        {
+            EatWhitespace(json,ref index);
+            if (index == json.Length)
+                return TOKEN_NONE;
+            char c = json[index];
+            index++;
+            switch (c)
+            {
+                case '{':
+                    return TOKEN_CURLY_OPEN;
+                case '}':
+                    return TOKEN_CURLY_CLOSE;
+                case '[':
+                    return TOKEN_SQUARED_OPEN;
+                case ']':
+                    return TOKEN_SQUARED_CLOSE;
+                case ',':
+                    return TOKEN_COMMA;
+                case '"':
+                    return TOKEN_STRING;
+                case '0':
+                case '1':
+                case '2':
+                case '3':
+                case '4':
+                case '5':
+                case '6':
+                case '7':
+                case '8':
+                case '9':
+                case '-':
+                    return TOKEN_NUMBER;
+                case ':':
+                    return TOKEN_COLON;
+            }
+            index--;
+            int remainingLength = json.Length - index;
+            // false
+            if (remainingLength >= 5)
+            {
+                if (json[index] == 'f' && json[index + 1] == 'a' && json[index + 2] == 'l' && json[index + 3] == 's' && json[index + 4] == 'e')
+                {
+                    index += 5;
+                    return TOKEN_FALSE;
+                }
+            }
+            // true
+            if (remainingLength >= 4)
+            {
+                if (json[index] == 't' && json[index + 1] == 'r' && json[index + 2] == 'u' && json[index + 3] == 'e')
+                {
+                    index += 4;
+                    return TOKEN_TRUE;
+                }
+            }
+            // null
+            if (remainingLength >= 4)
+            {
+                if (json[index] == 'n' && json[index + 1] == 'u' && json[index + 2] == 'l' && json[index + 3] == 'l')
+                {
+                    index += 4;
+                    return TOKEN_NULL;
+                }
+            }
+            return TOKEN_NONE;
         }
     }
     // ──────────────────────────────────────────────────────────────
@@ -2206,13 +2938,75 @@ namespace RS.SimpleJsonUnity
             RegisterAotType("List<DateTime>",typeof(List<DateTime>));
             RegisterAotType("List<Guid>",typeof(List<Guid>));
         }
+        /// <summary>
+        /// jsonString 是 JSON 字符串的原始文本，包含转义字符（如 \n、\t、\\ 等）。此方法将这些转义字符转换为它们对应的实际字符，使字符串更适合在 JavaScript 中使用。
+        /// </summary>
+        /// <param name="jsonString"></param>
+        /// <returns></returns>
+        public static string EscapeToJavascriptString(string jsonString)
+        {
+            if (string.IsNullOrEmpty(jsonString))
+                return jsonString;
+
+            StringBuilder sb = new StringBuilder();
+            char c;
+
+            for (int i = 0; i < jsonString.Length;)
+            {
+                c = jsonString[i++];
+
+                if (c == '\\')
+                {
+                    int remainingLength = jsonString.Length - i;
+                    if (remainingLength >= 2)
+                    {
+                        char lookahead = jsonString[i];
+                        if (lookahead == '\\')
+                        {
+                            sb.Append('\\');
+                            ++i;
+                        }
+                        else if (lookahead == '"')
+                        {
+                            sb.Append("\"");
+                            ++i;
+                        }
+                        else if (lookahead == 't')
+                        {
+                            sb.Append('\t');
+                            ++i;
+                        }
+                        else if (lookahead == 'b')
+                        {
+                            sb.Append('\b');
+                            ++i;
+                        }
+                        else if (lookahead == 'n')
+                        {
+                            sb.Append('\n');
+                            ++i;
+                        }
+                        else if (lookahead == 'r')
+                        {
+                            sb.Append('\r');
+                            ++i;
+                        }
+                    }
+                }
+                else
+                {
+                    sb.Append(c);
+                }
+            }
+            return sb.ToString();
+        }
 
         /// <summary>
         /// 全局默认序列化策略。
         /// </summary>
         /// <remarks>
         /// 线程安全说明：属性本身的读写是原子的（volatile），但动态修改
-        /// strategy 实例的 toLowerCase 等设置不是线程安全的。
+        /// strategy 实例的 ignoreLowerCaseDeserialization 等设置不是线程安全的。
         /// 多线程场景建议每次调用显式传入 strategy 实例。
         /// </remarks>
         public static IJsonSerializerStrategy CurrentJsonSerializerStrategy
@@ -2254,11 +3048,13 @@ namespace RS.SimpleJsonUnity
             object obj,
             IJsonSerializerStrategy jsonSerializerStrategy)
         {
+            jsonSerializerStrategy.ClearSerializationStack();
+
             var builder = new StringBuilder();
             SerializeValue(jsonSerializerStrategy,obj,builder);
             return builder.ToString();
         }
-
+        #region Serialize Core
         private static bool SerializeValue(
             IJsonSerializerStrategy strategy,
             object value,
@@ -2281,48 +3077,10 @@ namespace RS.SimpleJsonUnity
                 builder.Append((bool)value ? "true" : "false");
                 return true;
             }
-
-            // ★ float/double 必须在 exporter 表查询之前处理，保证 G9/G17 精度
-            if (value is float)
+            if (IsNumeric(value))
             {
-                float fval = (float)value;
-                if (float.IsNaN(fval) || float.IsInfinity(fval))
-                {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                    Guard.LogWarning(
-                        "SerializeValue: float " + fval +
-                        " is NaN/Infinity (not valid JSON). Serializing as null.");
-#endif
-                    builder.Append("null");
-                }
-                else
-                    builder.Append(fval.ToString("G9",
-                        CultureInfo.InvariantCulture));
-                return true;
+                return SerializeNumber(value,builder);
             }
-
-            if (value is double)
-            {
-                double dval = (double)value;
-                if (double.IsNaN(dval) || double.IsInfinity(dval))
-                {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                    Guard.LogWarning(
-                        "SerializeValue: double " + dval +
-                        " is NaN/Infinity (not valid JSON). Serializing as null.");
-#endif
-                    builder.Append("null");
-                }
-                else
-                    builder.Append(dval.ToString("G17",
-                        CultureInfo.InvariantCulture));
-                return true;
-            }
-
-            if (value is int) { builder.Append((int)value); return true; }
-            if (value is long) { builder.Append((long)value); return true; }
-            if (value is uint) { builder.Append((uint)value); return true; }
-            if (value is ulong) { builder.Append((ulong)value); return true; }
 
             // IDictionary<string,object>（SimpleJson 内部表示）
             IDictionary<string,object> strDict =
@@ -2357,33 +3115,131 @@ namespace RS.SimpleJsonUnity
             return false;
         }
 
-        private static void SerializeString(string str,StringBuilder builder)
+        static bool SerializeString(string aString,StringBuilder builder)
         {
-            builder.Append('"');
-            foreach (char c in str)
+            // Happy path if there's nothing to be escaped. IndexOfAny is highly optimized (and unmanaged)
+            if (aString.IndexOfAny(JsonParser.EscapeCharacters) == -1)
             {
-                switch (c)
+                builder.Append('"');
+                builder.Append(aString);
+                builder.Append('"');
+
+                return true;
+            }
+
+            builder.Append('"');
+            int safeCharacterCount = 0;
+            char[] charArray = aString.ToCharArray();
+
+            for (int i = 0; i < charArray.Length; i++)
+            {
+                char c = charArray[i];
+
+                // Non ascii characters are fine, buffer them up and send them to the builder
+                // in larger chunks if possible. The escape table is a 1:1 translation table
+                // with \0 [default(char)] denoting a safe character.
+                if (Char.IsControl(c) || c == '\"' || c == '\\')
                 {
-                    case '"': builder.Append("\\\""); break;
-                    case '\\': builder.Append("\\\\"); break;
-                    case '\b': builder.Append("\\b"); break;
-                    case '\f': builder.Append("\\f"); break;
-                    case '\n': builder.Append("\\n"); break;
-                    case '\r': builder.Append("\\r"); break;
-                    case '\t': builder.Append("\\t"); break;
-                    default:
-                        if (c < 0x20)
-                            builder.Append("\\u")
-                                   .Append(((int)c).ToString("x4",
-                                       CultureInfo.InvariantCulture));
-                        else
-                            builder.Append(c);
-                        break;
+                    if (safeCharacterCount > 0)
+                    {
+                        builder.Append(charArray,i - safeCharacterCount,safeCharacterCount);
+                        safeCharacterCount = 0;
+                    }
+
+                    builder.Append('\\');
+                    switch (c)
+                    {
+                        case '\\':
+                            builder.Append('\\');
+                            break;
+                        case '\"':
+                            builder.Append('\"');
+                            break;
+                        case '\b':
+                            builder.Append('b');
+                            break;
+                        case '\f':
+                            builder.Append('f');
+                            break;
+                        case '\r':
+                            builder.Append('r');
+                            break;
+                        case '\t':
+                            builder.Append('t');
+                            break;
+                        case '\n':
+                            builder.Append('n');
+                            break;
+                        default:
+                            builder.AppendFormat("u{0:X4}",(int)c);
+                            break;
+                    }
+                }
+                else
+                {
+                    safeCharacterCount++;
                 }
             }
-            builder.Append('"');
-        }
 
+            if (safeCharacterCount > 0)
+            {
+                builder.Append(charArray,charArray.Length - safeCharacterCount,safeCharacterCount);
+            }
+
+            builder.Append('"');
+            return true;
+        }
+        /// <summary>
+        /// Determines if a given object is numeric in any way
+        /// (can be integer, double, null, etc).
+        /// </summary>
+        static bool IsNumeric(object value)
+        {
+            if (value is sbyte) return true;
+            if (value is byte) return true;
+            if (value is short) return true;
+            if (value is ushort) return true;
+            if (value is int) return true;
+            if (value is uint) return true;
+            if (value is long) return true;
+            if (value is ulong) return true;
+            if (value is float) return true;
+            if (value is double) return true;
+            if (value is decimal) return true;
+            return false;
+        }
+        static bool SerializeNumber(object number,StringBuilder builder)
+        {
+            if (number is long)
+                builder.Append(((long)number).ToString(CultureInfo.InvariantCulture));
+            else if (number is ulong)
+                builder.Append(((ulong)number).ToString(CultureInfo.InvariantCulture));
+            else if (number is int)
+                builder.Append(((int)number).ToString(CultureInfo.InvariantCulture));
+            else if (number is uint)
+                builder.Append(((uint)number).ToString(CultureInfo.InvariantCulture));
+            else if (number is decimal)
+                builder.Append(((decimal)number).ToString(CultureInfo.InvariantCulture));
+            else if (number is float)
+            {
+                float fval = (float)number;
+                if (float.IsNaN(fval) || float.IsInfinity(fval))
+                    builder.Append("null");
+                else
+                    builder.Append(fval.ToString("G9",CultureInfo.InvariantCulture));
+            }
+            else if (number is double)
+            {
+                double dval = (double)number;
+                if (double.IsNaN(dval) || double.IsInfinity(dval))
+                    builder.Append("null");
+                else
+                    builder.Append(dval.ToString("G17",CultureInfo.InvariantCulture));
+            }
+            else
+                builder.Append(Convert.ToDouble(number,CultureInfo.InvariantCulture).ToString("r",CultureInfo.InvariantCulture));
+            return true;
+        }
         private static bool SerializeDictionary(
             IJsonSerializerStrategy strategy,
             IDictionary<string,object> dict,
@@ -2482,9 +3338,13 @@ namespace RS.SimpleJsonUnity
             builder.Append(']');
             return true;
         }
-
+        #endregion
         // ── 反序列化 ────────────────────────────────────────────────
-
+        /// <summary>
+        /// Parses the string json into a value,返回的是一个简单的 JSON 数据结构（IList<object>、IDictionary<string,object>、double、string、null、true 或 false）。如果解析失败，则抛出 InvalidOperationException 异常。建议使用 TryDeserializeObject 方法进行安全解析，避免异常开销。
+        /// </summary>
+        /// <param name="json">A JSON string.</param>
+        /// <returns>An IList&lt;object>, a IDictionary&lt;string,object>, a double, a string, null, true, or false</returns>
         public static object DeserializeObject(string json)
         {
             object obj;
@@ -2492,7 +3352,24 @@ namespace RS.SimpleJsonUnity
                 return obj;
             throw new InvalidOperationException("Failed to deserialize JSON.");
         }
-
+        /// <summary>
+        /// Try parsing the json string into a value.解析成功返回 true，并通过 out 参数 obj 返回解析结果；解析失败返回 false，out 参数 obj 将被设置为 null。此方法不会抛出异常，适用于不确定输入格式的场景。
+        /// </summary>
+        /// <param name="json">
+        /// A JSON string.
+        /// </param>
+        /// <param name="obj">
+        /// The object.
+        /// </param>
+        /// <returns>
+        /// Returns true if successfull otherwise false.
+        /// </returns>
+        [SuppressMessage("Microsoft.Design","CA1007:UseGenericsWhereAppropriate",Justification = "Need to support .NET 2")]
+        public static bool TryDeserializeObject(string json,out object obj)
+        {
+            // 委托给 JsonParser（原库 JSON 解析器，保持不变）
+            return JsonParser.TryParse(json,out obj);
+        }
         public static T DeserializeObject<T>(string json)
         {
             return (T)DeserializeObject(json,typeof(T),
@@ -2513,271 +3390,21 @@ namespace RS.SimpleJsonUnity
         public static object DeserializeObject(
             string json,Type type,IJsonSerializerStrategy strategy)
         {
-            object parsed = DeserializeObject(json);
-            return DeserializeObject(parsed,type,strategy);
+            //object parsed = DeserializeObject(json);
+            //return DeserializeObject(parsed,type,strategy);
+            object jsonObject = DeserializeObject(json);
+
+            if (type == null || jsonObject == null) return jsonObject;
+            if (ReflectionUtils.IsAssignableFrom(jsonObject.GetType(),type))
+            {
+                return jsonObject;
+            }
+            IJsonSerializerStrategy jsonSerializerStrategy = (strategy != null ? strategy : CurrentJsonSerializerStrategy);
+            return jsonSerializerStrategy.DeserializeObject(jsonObject,type);
+           
         }
 
-        internal static object DeserializeObject(
-            object value,Type type,IJsonSerializerStrategy strategy)
-        {
-            if (type == null || value == null) return value;
-
-            // string → 目标类型
-            string str = value as string;
-            if (str != null)
-            {
-                if (type == typeof(string)) return str;
-                if (type == typeof(Guid))
-                {
-                    if (str.Length == 0) return default(Guid);
-                    return new Guid(str);
-                }
-                if (type == typeof(Uri)) return new Uri(str);
-                if (type == typeof(char))
-                {
-                    if (str.Length == 1) return str[0];
-                    if (str.Length > 1)
-                    {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                        Guard.LogWarning(
-                            "DeserializeObject: string \"" + str +
-                            "\" truncated to char '" + str[0] + "'.");
-#endif
-                        return str[0];
-                    }
-                    return default(char);
-                }
-                if (type == typeof(DateTime))
-                {
-                    try
-                    {
-                        return DateTime.ParseExact(str,
-                            Constants.Iso8601Format,
-                            CultureInfo.InvariantCulture,
-                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-                    }
-                    catch (FormatException)
-                    {
-                        return Convert.ToDateTime(str,CultureInfo.InvariantCulture);
-                    }
-                }
-                if (type == typeof(DateTimeOffset))
-                {
-                    try
-                    {
-                        return DateTimeOffset.ParseExact(str,
-                           Constants.Iso8601Format,
-                            CultureInfo.InvariantCulture,
-                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-                    }
-                    catch (FormatException)
-                    {
-                        return DateTimeOffset.Parse(str,CultureInfo.InvariantCulture);
-                    }
-                }
-                if (type == typeof(TimeSpan))
-                {
-                    if (long.TryParse(str,out long ticks))
-                        return new TimeSpan(ticks);
-#if NET20 || NET35
-                    return TimeSpan.Parse(str);
-#else
-                    return TimeSpan.Parse(str,CultureInfo.InvariantCulture);
-#endif
-                }
-                if (type.IsEnum)
-                {
-#if !SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
-                    return Enum.Parse(type,str,true);
-#else
-                return Enum.ToObject(type,
-                    Convert.ChangeType(str,
-                        Enum.GetUnderlyingType(type),
-                        CultureInfo.InvariantCulture));
-#endif
-                }
-            }
-
-            // 数值 → 目标类型
-            if (value is long || value is int || value is double)
-            {
-                if (type.IsEnum)
-                    return Enum.ToObject(type,
-                        Convert.ChangeType(value,
-                            Enum.GetUnderlyingType(type),
-                            CultureInfo.InvariantCulture));
-
-                if (type == typeof(int))
-                    return Convert.ToInt32(value,CultureInfo.InvariantCulture);
-                if (type == typeof(long))
-                    return Convert.ToInt64(value,CultureInfo.InvariantCulture);
-                if (type == typeof(short))
-                    return Convert.ToInt16(value,CultureInfo.InvariantCulture);
-                if (type == typeof(byte))
-                    return Convert.ToByte(value,CultureInfo.InvariantCulture);
-                if (type == typeof(sbyte))
-                    return Convert.ToSByte(value,CultureInfo.InvariantCulture);
-                if (type == typeof(uint))
-                    return Convert.ToUInt32(value,CultureInfo.InvariantCulture);
-                if (type == typeof(ulong))
-                    return Convert.ToUInt64(value,CultureInfo.InvariantCulture);
-                if (type == typeof(ushort))
-                    return Convert.ToUInt16(value,CultureInfo.InvariantCulture);
-                if (type == typeof(float))
-                    return Convert.ToSingle(value,CultureInfo.InvariantCulture);
-                if (type == typeof(double))
-                    return Convert.ToDouble(value,CultureInfo.InvariantCulture);
-                if (type == typeof(decimal))
-                    return Convert.ToDecimal(value,CultureInfo.InvariantCulture);
-
-                // 注：decimal 经 double 中间层存在精度截断，这是 JSON 数值的固有局限
-            }
-
-            // IList
-            IList<object> jsonArray = value as IList<object>;
-            if (jsonArray != null)
-            {
-                // ... 原有数组反序列化逻辑（elementType 推断 + LogWarning）
-                return DeserializeArray(jsonArray,type,strategy);
-            }
-
-            // IDictionary<string,object> → 字典或 POCO
-            IDictionary<string,object> jsonObj =
-                value as IDictionary<string,object>;
-            if (jsonObj != null)
-            {
-                object result;
-                if (strategy.TryDeserializeObject(jsonObj,type,out result))
-                    return result;
-            }
-
-            // 类型已匹配
-            if (type.IsAssignableFrom(value.GetType()))
-                return value;
-
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-            Guard.LogWarning(
-                "DeserializeObject: Cannot deserialize value of type \"" +
-                value.GetType().FullName + "\" to \"" + type.FullName +
-                "\". Returning raw value.");
-#endif
-            return value;
-        }
-
-        private static object DeserializeArray(
-            IList<object> jsonArray,Type type,
-            IJsonSerializerStrategy strategy)
-        {
-            Type elementType = null;
-
-            if (type.IsArray)
-            {
-                elementType = type.GetElementType();
-            }
-            else if (type.IsGenericType)
-            {
-                Type[] args = type.GetGenericArguments();
-                if (args.Length == 1) elementType = args[0];
-            }
-
-            if (elementType == null || elementType == typeof(object))
-            {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                Guard.LogWarning(
-                    "DeserializeArray: Cannot determine element type for \"" +
-                    type.FullName + "\". Elements deserialized as object. " +
-                    "Consider using List<T> instead.");
-#endif
-                elementType = typeof(object);
-            }
-
-            IList list = new List<object>();
-            foreach (object item in jsonArray)
-                list.Add(DeserializeObject(item,elementType,strategy));
-
-            if (type.IsArray)
-            {
-                Array arr = Array.CreateInstance(elementType,list.Count);
-                for (int i = 0; i < list.Count; i++)
-                    arr.SetValue(list[i],i);
-                return arr;
-            }
-
-            // List<T> 或其他 IList
-            IList result;
-            try
-            {
-                result = (IList)Activator.CreateInstance(type);
-            }
-            catch (Exception ex)
-            {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                Guard.LogWarning(
-                    "DeserializeArray: Failed to create instance of \"" +
-                    type.FullName + "\". Falling back to List<object>. " + ex.Message);
-#endif
-                result = new List<object>();
-            }
-            foreach (object item in list)
-                result.Add(item);
-            return result;
-        }
-
-        private static bool TryDeserializeObject(string json,out object obj)
-        {
-            // 委托给 JsonParser（原库 JSON 解析器，保持不变）
-            return JsonParser.TryParse(json,out obj);
-        }
-
-        // ── ParseNumber（含 double 兜底）───────────────────────────
-
-        internal static bool ParseNumber(string str,out object returnNumber)
-        {
-            // 尝试 long
-            long longVal;
-            if (long.TryParse(str,NumberStyles.Any,
-                CultureInfo.InvariantCulture,out longVal))
-            {
-                returnNumber = longVal;
-                return true;
-            }
-
-            // 尝试 ulong（正整数超 long 范围）
-            ulong ulongVal;
-            if (ulong.TryParse(str,NumberStyles.Any,
-                CultureInfo.InvariantCulture,out ulongVal))
-            {
-                returnNumber = ulongVal;
-                return true;
-            }
-
-            // double 兜底（超 ulong 范围或浮点数）
-            // 注：超过 2^53 的整数以 double 存储时存在精度损失，这是 JSON 的固有局限
-            double doubleVal;
-            if (double.TryParse(str,NumberStyles.Any,
-                CultureInfo.InvariantCulture,out doubleVal))
-            {
-                if (doubleVal != Math.Truncate(doubleVal) ||
-                    str.IndexOf('.') >= 0 || str.IndexOf('e') >= 0 ||
-                    str.IndexOf('E') >= 0)
-                {
-                    // 确实是浮点数
-                    returnNumber = doubleVal;
-                    return true;
-                }
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
-                Guard.LogWarning(
-                    "ParseNumber: \"" + str +
-                    "\" exceeds ulong range, stored as double. " +
-                    "Integers > 2^53 may lose precision.");
-#endif
-                returnNumber = doubleVal;
-                return true;
-            }
-
-            returnNumber = 0;
-            return false;
-        }
+   
     }
 
 } // namespace SimpleJson
@@ -2800,6 +3427,10 @@ namespace RS.SimpleJsonUnity
 #endif
     class UnitySerializationStrategy : DefaultJsonSerializationStrategy
     {
+       public UnitySerializationStrategy() : base() { }
+
+        public UnitySerializationStrategy(bool ignoreLowerCase, bool useJsonAliasSerialization)
+            : base(ignoreLowerCase, useJsonAliasSerialization) { }
         private static bool IsUnityType(Type type)
         {
             return type.FullName != null &&
@@ -2874,8 +3505,8 @@ namespace RS.SimpleJsonUnity
     {
         public DataContractSerializationStrategy() : base() { }
 
-        public DataContractSerializationStrategy(bool toLowerCase, bool onlyPublic)
-            : base(toLowerCase, onlyPublic) { }
+        public DataContractSerializationStrategy(bool ignoreLowerCase, bool useJsonAliasSerialization)
+            : base(ignoreLowerCase, useJsonAliasSerialization) { }
 
         /// <summary>
         /// 检查类型是否标记了 DataContract 特性
@@ -2902,8 +3533,7 @@ namespace RS.SimpleJsonUnity
                     jsonKey = dataMember.Name;
             }
 
-            if (toLowerCase)
-                jsonKey = ToCamelCase(jsonKey);
+            // SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE 仅影响反序列化，序列化保留原始大小写
 
             return jsonKey;
         }
@@ -2961,7 +3591,7 @@ namespace RS.SimpleJsonUnity
         // ── 重写 BuildGetters 以支持 DataContract ───────────────────
 
         private static IDictionary<string, Func<object, object>>
-            BuildGettersWithDataContract(Type type, bool toLowerCase,bool useJsonAlias)
+            BuildGettersWithDataContract(Type type, bool ignoreLowerCase,bool useJsonAlias)
         {
             var getters = new Dictionary<string, Func<object, object>>();
             var seen = new HashSet<string>();
@@ -2985,17 +3615,17 @@ namespace RS.SimpleJsonUnity
                     if (alias != null)
                     {
                         jsonKey = alias;
-                        if (toLowerCase)
+                        if (ignoreLowerCase)
                             jsonKey = ToCamelCaseStatic(jsonKey);
                     }
                     else
                     {
-                        jsonKey = GetJsonKeyName(p, hasDataContract, toLowerCase);
+                        jsonKey = GetJsonKeyName(p, hasDataContract, ignoreLowerCase);
                     }
                 }
                 else
                 {
-                    jsonKey = GetJsonKeyName(p, hasDataContract, toLowerCase);
+                    jsonKey = GetJsonKeyName(p, hasDataContract, ignoreLowerCase);
                 }
                 
                 PropertyInfo captured = p;
@@ -3018,17 +3648,17 @@ namespace RS.SimpleJsonUnity
                     if (alias != null)
                     {
                         jsonKey = alias;
-                        if (toLowerCase)
+                        if (ignoreLowerCase)
                             jsonKey = ToCamelCaseStatic(jsonKey);
                     }
                     else
                     {
-                        jsonKey = GetJsonKeyName(f, hasDataContract, toLowerCase);
+                        jsonKey = GetJsonKeyName(f, hasDataContract, ignoreLowerCase);
                     }
                 }
                 else
                 {
-                    jsonKey = GetJsonKeyName(f, hasDataContract, toLowerCase);
+                    jsonKey = GetJsonKeyName(f, hasDataContract, ignoreLowerCase);
                 }
                 
                 FieldInfo captured = f;
@@ -3058,17 +3688,17 @@ namespace RS.SimpleJsonUnity
                     if (alias != null)
                     {
                         jsonKey = alias;
-                        if (toLowerCase)
+                        if (ignoreLowerCase)
                             jsonKey = ToCamelCaseStatic(jsonKey);
                     }
                     else
                     {
-                        jsonKey = GetJsonKeyName(p, hasDataContract, toLowerCase);
+                        jsonKey = GetJsonKeyName(p, hasDataContract, ignoreLowerCase);
                     }
                 }
                 else
                 {
-                    jsonKey = GetJsonKeyName(p, hasDataContract, toLowerCase);
+                    jsonKey = GetJsonKeyName(p, hasDataContract, ignoreLowerCase);
                 }
                 
                 PropertyInfo captured = p;
@@ -3094,17 +3724,17 @@ namespace RS.SimpleJsonUnity
                     if (alias != null)
                     {
                         jsonKey = alias;
-                        if (toLowerCase)
+                        if (ignoreLowerCase)
                             jsonKey = ToCamelCaseStatic(jsonKey);
                     }
                     else
                     {
-                        jsonKey = GetJsonKeyName(f, hasDataContract, toLowerCase);
+                        jsonKey = GetJsonKeyName(f, hasDataContract, ignoreLowerCase);
                     }
                 }
                 else
                 {
-                    jsonKey = GetJsonKeyName(f, hasDataContract, toLowerCase);
+                    jsonKey = GetJsonKeyName(f, hasDataContract, ignoreLowerCase);
                 }
                 
                 FieldInfo captured = f;
@@ -3127,7 +3757,7 @@ namespace RS.SimpleJsonUnity
             return true;
         }
 
-        private static string GetJsonKeyName(MemberInfo member, bool hasDataContract, bool toLowerCase)
+        private static string GetJsonKeyName(MemberInfo member, bool hasDataContract, bool ignoreLowerCase)
         {
             string jsonKey = member.Name;
 
@@ -3141,8 +3771,7 @@ namespace RS.SimpleJsonUnity
                     jsonKey = dataMember.Name;
             }
 
-            if (toLowerCase)
-                jsonKey = ToCamelCaseStatic(jsonKey);
+            // SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE 仅影响反序列化，序列化保留原始大小写
 
             return jsonKey;
         }
@@ -3169,9 +3798,11 @@ namespace RS.SimpleJsonUnity
         // ── 重写 BuildSetters 以支持 DataContract ───────────────────
 
         private static IDictionary<string, Action<object, object>>
-            BuildSettersWithDataContract(Type type, bool toLowerCase)
+            BuildSettersWithDataContract(Type type, bool ignoreLowerCase)
         {
-            var setters = new Dictionary<string, Action<object, object>>();
+            var setters = ignoreLowerCase
+                ? new Dictionary<string, Action<object, object>>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, Action<object, object>>();
             var seen = new HashSet<string>();
             bool hasDataContract = HasDataContract(type);
 
@@ -3201,7 +3832,7 @@ namespace RS.SimpleJsonUnity
                         }
                     };
 
-                    string jsonKey = GetJsonKeyName(member, hasDataContract, toLowerCase);
+                    string jsonKey = GetJsonKeyName(member, hasDataContract, ignoreLowerCase);
 
                     // JsonAlias 支持
                     JsonAliasAttribute aliasAttr = member.GetCustomAttributes(typeof(JsonAliasAttribute), true)
@@ -3210,10 +3841,7 @@ namespace RS.SimpleJsonUnity
                     {
                         foreach (string alias in aliasAttr.Aliases)
                         {
-                            string aliasKey = toLowerCase
-                                ? ToCamelCaseStatic(alias)
-                                : alias;
-                            setters[aliasKey] = safeSetter;
+                            setters[alias] = safeSetter;
                         }
                         if (aliasAttr.AcceptOriginalName)
                         {
@@ -3284,14 +3912,94 @@ namespace RS.SimpleJsonUnity
 
         private static object CoerceValueStatic(object val, Type targetType)
         {
-            // 简化版本，复用 DefaultJsonSerializationStrategy 的逻辑
-            // 实际使用时会调用实例方法
             if (val == null) return null;
             if (targetType.IsAssignableFrom(val.GetType())) return val;
 
             Type underlying = Nullable.GetUnderlyingType(targetType);
             if (underlying != null)
                 targetType = underlying;
+
+            // IList 类型：IList<object> → 目标 List<T>/T[]
+            if (typeof(IList).IsAssignableFrom(targetType) && val is IList<object> listVal)
+            {
+                Type elementType = null;
+                if (targetType.IsArray)
+                    elementType = targetType.GetElementType();
+                else if (targetType.IsGenericType)
+                {
+                    Type[] args = targetType.GetGenericArguments();
+                    if (args.Length == 1) elementType = args[0];
+                }
+
+                if (elementType != null)
+                {
+                    IList result;
+                    if (targetType.IsArray)
+                    {
+                        result = Array.CreateInstance(elementType, listVal.Count);
+                    }
+                    else
+                    {
+                        try { result = (IList)Activator.CreateInstance(targetType); }
+                        catch (MissingMethodException)
+                        {
+                            Type fallbackType = typeof(List<>).MakeGenericType(elementType);
+                            result = (IList)Activator.CreateInstance(fallbackType);
+                        }
+                        catch { return null; }
+                    }
+
+                    int idx = 0;
+                    foreach (object item in listVal)
+                    {
+                        object convertedItem = CoerceValueStatic(item, elementType);
+                        if (targetType.IsArray)
+                            result[idx] = convertedItem;
+                        else
+                            result.Add(convertedItem);
+                        idx++;
+                    }
+                    return result;
+                }
+            }
+
+            // IDictionary 类型：IDictionary<string,object> → 目标 Dictionary<K,V>
+            if (typeof(IDictionary).IsAssignableFrom(targetType) && val is IDictionary<string, object> dictVal)
+            {
+                if (targetType.IsGenericType)
+                {
+                    Type[] args = targetType.GetGenericArguments();
+                    if (args.Length == 2)
+                    {
+                        Type keyType = args[0];
+                        Type valueType = args[1];
+
+                        IDictionary result;
+                        try { result = (IDictionary)Activator.CreateInstance(targetType); }
+                        catch { return null; }
+
+                        foreach (var kvp in dictVal)
+                        {
+                            object dictKey = DefaultJsonSerializationStrategy.ConvertDictionaryKey(kvp.Key, keyType);
+                            object dictValue = CoerceValueStatic(kvp.Value, valueType);
+                            result[dictKey] = dictValue;
+                        }
+                        return result;
+                    }
+                }
+            }
+
+            // POCO 类型：IDictionary<string,object> → 目标 POCO
+            IDictionary<string, object> pocoDict = val as IDictionary<string, object>;
+            if (pocoDict != null
+                && targetType.IsClass
+                && targetType != typeof(string)
+                && !typeof(IDictionary).IsAssignableFrom(targetType)
+                && !typeof(IList).IsAssignableFrom(targetType))
+            {
+                return SimpleJson.DeserializeObject(
+                    pocoDict, targetType, SimpleJson.CurrentJsonSerializerStrategy);
+            }
 
             return Convert.ChangeType(val, targetType, CultureInfo.InvariantCulture);
         }
@@ -3302,7 +4010,7 @@ namespace RS.SimpleJsonUnity
         {
             // 使用 DataContract 版本的 BuildGetters
             var cache = _getterCache;
-            var cacheKey = new TypeCacheKey(type, toLowerCase, useJsonAliasForSerialization);
+            var cacheKey = new TypeCacheKey(type, ignoreLowerCaseDeserialization, useJsonAliasForSerialization);
             IDictionary<string, Func<object, object>> cached;
             if (cache.TryGetValue(cacheKey, out cached)) return cached;
 
@@ -3310,7 +4018,7 @@ namespace RS.SimpleJsonUnity
             {
                 if (cache.TryGetValue(cacheKey, out cached)) return cached;
                 IDictionary<string, Func<object, object>> built;
-                try { built = BuildGettersWithDataContract(type, toLowerCase, useJsonAliasForSerialization); }
+                try { built = BuildGettersWithDataContract(type, ignoreLowerCaseDeserialization, useJsonAliasForSerialization); }
                 catch (Exception ex)
                 {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
@@ -3326,7 +4034,7 @@ namespace RS.SimpleJsonUnity
 
         protected override IDictionary<string, Action<object, object>> GetOrBuildSetters(Type type)
         {
-            var cacheKey = new TypeCacheKey(type, toLowerCase);
+            var cacheKey = new TypeCacheKey(type, ignoreLowerCaseDeserialization);
             var cache = _setterCache;
             IDictionary<string, Action<object, object>> cached;
             if (cache.TryGetValue(cacheKey, out cached)) return cached;
@@ -3335,7 +4043,7 @@ namespace RS.SimpleJsonUnity
             {
                 if (cache.TryGetValue(cacheKey, out cached)) return cached;
                 IDictionary<string, Action<object, object>> built;
-                try { built = BuildSettersWithDataContract(type, toLowerCase); }
+                try { built = BuildSettersWithDataContract(type, ignoreLowerCaseDeserialization); }
                 catch (Exception ex)
                 {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
