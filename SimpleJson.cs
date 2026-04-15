@@ -85,6 +85,7 @@
 //#endif
 
 //#define SIMPLE_JSON_UNITY
+//#define SIMPLE_JSON_WEBGL
 //NOTE:Unity support
 #if SIMPLE_JSON_UNITY
 using UnityEngine;
@@ -129,16 +130,16 @@ namespace RS.SimpleJsonUnity
     // Comment/Remove them when compiling to .NET 3.5 to avoid ambiguity.
 
     public delegate void Action();
-    public delegate void Action<T>(T arg);
+    //public delegate void Action<T>(T arg);
     public delegate void Action<T1, T2>(T1 arg1,T2 arg2);
     public delegate void Action<T1, T2, T3>(T1 arg1,T2 arg2,T3 arg3);
-    public delegate void Action<T1, T2, T3, T4>(T1 arg1,T2 arg2,T3 arg3,T4 arg4);
+    //public delegate void Action<T1, T2, T3, T4>(T1 arg1,T2 arg2,T3 arg3,T4 arg4);
 
-    public delegate TResult Func<TResult>();
+    //public delegate TResult Func<TResult>();
     public delegate TResult Func<T, TResult>(T arg);
-    public delegate TResult Func<T1, T2, TResult>(T1 arg1,T2 arg2);
-    public delegate TResult Func<T1, T2, T3, TResult>(T1 arg1,T2 arg2,T3 arg3);
-    public delegate TResult Func<T1, T2, T3, T4, TResult>(T1 arg1,T2 arg2,T3 arg3,T4 arg4);
+    //public delegate TResult Func<T1, T2, TResult>(T1 arg1,T2 arg2);
+    //public delegate TResult Func<T1, T2, T3, TResult>(T1 arg1,T2 arg2,T3 arg3);
+    //public delegate TResult Func<T1, T2, T3, T4, TResult>(T1 arg1,T2 arg2,T3 arg3,T4 arg4);
 #elif NET35
     
 #endif
@@ -408,7 +409,52 @@ namespace RS.SimpleJsonUnity
         private readonly Dictionary<TKey,TValue> _dict =
             new Dictionary<TKey,TValue>();
 
-#if NET20 || SIMPLE_JSON_UNITY
+#if SIMPLE_JSON_WEBGL
+        // WebGL 单线程：完全无锁，零开销
+        public TValue this[TKey key]
+        {
+            get { return _dict[key]; }
+            set { _dict[key] = value; }
+        }
+        public bool TryGetValue(TKey key,out TValue value)
+        {
+            return _dict.TryGetValue(key,out value);
+        }
+        public bool ContainsKey(TKey key)
+        {
+            return _dict.ContainsKey(key);
+        }
+        public void Add(TKey key,TValue value)
+        {
+            _dict[key] = value;
+        }
+        public bool Remove(TKey key)
+        {
+            return _dict.Remove(key);
+        }
+        public void Clear()
+        {
+            _dict.Clear();
+        }
+        public int Count
+        {
+            get { return _dict.Count; }
+        }
+        public ICollection<TKey> Keys
+        {
+            get { return new List<TKey>(_dict.Keys); }
+        }
+        public ICollection<TValue> Values
+        {
+            get { return new List<TValue>(_dict.Values); }
+        }
+        public IEnumerator<KeyValuePair<TKey,TValue>> GetEnumerator()
+        {
+            return new List<KeyValuePair<TKey,TValue>>(_dict).GetEnumerator();
+        }
+        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
+
+#elif NET20 || SIMPLE_JSON_UNITY
         private readonly object _lock = new object();
 
         public TValue this[TKey key]
@@ -911,8 +957,12 @@ namespace RS.SimpleJsonUnity
                 IDictionary<string,Action<object,object>>>();
 
         // 缓存构建锁
+#if SIMPLE_JSON_WEBGL
+        // WebGL 单线程：无需锁
+#else
         protected readonly object m_getterBuildLock = new object();
         protected readonly object m_setterBuildLock = new object();
+#endif
 
         // 序列化循环引用检测栈（实例级别，线程本地存储）
 #if NET20 || NET35
@@ -987,6 +1037,10 @@ namespace RS.SimpleJsonUnity
 
         public void ClearCache()
         {
+#if SIMPLE_JSON_WEBGL
+            m_getterCache.Clear();
+            m_setterCache.Clear();
+#else
             lock (m_getterBuildLock)
             {
                 m_getterCache.Clear();
@@ -995,6 +1049,7 @@ namespace RS.SimpleJsonUnity
             {
                 m_setterCache.Clear();
             }
+#endif
         }
                       
         protected virtual object CoerceValue(object val,Type targetType,IJsonSerializerStrategy strategy)
@@ -1232,6 +1287,20 @@ namespace RS.SimpleJsonUnity
             var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization,useJsonAliasForSerialization);
             IDictionary<string,Func<object,object>> cached;
             if (m_getterCache.TryGetValue(cacheKey,out cached)) return cached;
+#if SIMPLE_JSON_WEBGL
+            IDictionary<string,Func<object,object>> built;
+            try { built = BuildGetters(type,useJsonAliasForSerialization,this); }
+            catch (Exception ex)
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                Guard.LogError("GetOrBuildGetters: Failed for \"" +
+                    type.FullName + "\". " + ex.Message);
+#endif
+                return new Dictionary<string,Func<object,object>>();
+            }
+            m_getterCache[cacheKey] = built;
+            return built;
+#else
             lock (m_getterBuildLock)
             {
                 if (m_getterCache.TryGetValue(cacheKey,out cached)) return cached;
@@ -1248,6 +1317,7 @@ namespace RS.SimpleJsonUnity
                 m_getterCache[cacheKey] = built;
                 return built;
             }
+#endif
         }
 
         protected virtual IDictionary<string,Action<object,object>>
@@ -1256,6 +1326,20 @@ namespace RS.SimpleJsonUnity
             var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization);
             IDictionary<string,Action<object,object>> cached;
             if (m_setterCache.TryGetValue(cacheKey,out cached)) return cached;
+#if SIMPLE_JSON_WEBGL
+            IDictionary<string,Action<object,object>> built;
+            try { built = BuildSetters(type,ignoreLowerCaseForDeserialization,this); }
+            catch (Exception ex)
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                Guard.LogError("GetOrBuildSetters: Failed for \"" +
+                    type.FullName + "\". " + ex.Message);
+#endif
+                return new Dictionary<string,Action<object,object>>();
+            }
+            m_setterCache[cacheKey] = built;
+            return built;
+#else
             lock (m_setterBuildLock)
             {
                 if (m_setterCache.TryGetValue(cacheKey,out cached)) return cached;
@@ -1272,6 +1356,7 @@ namespace RS.SimpleJsonUnity
                 m_setterCache[cacheKey] = built;
                 return built;
             }
+#endif
         }
 
         // ── TrySerializeNonPrimitiveObject ──────────────────────────
@@ -1629,14 +1714,11 @@ namespace RS.SimpleJsonUnity
             IList result;
             try
             {
-                result = (IList)Activator.CreateInstance(type);
+                result = (IList)SimpleJson.SafeCreateInstance(type);
             }
             catch (MissingMethodException)
             {
-                // 接口类型（IList<T>/ICollection<T>/IEnumerable<T> 等）无法实例化，
-                // fallback 到 List<elementType>，与原始 SimpleJson 行为一致
-                Type fallbackType = typeof(List<>).MakeGenericType(elementType);
-                result = (IList)Activator.CreateInstance(fallbackType);
+                result = SimpleJson.SafeCreateList(elementType);
             }
             catch (Exception ex)
             {
@@ -1685,7 +1767,7 @@ namespace RS.SimpleJsonUnity
                 IDictionary dict;
                 try
                 {
-                    dict = (IDictionary)Activator.CreateInstance(type);
+                    dict = (IDictionary)SimpleJson.SafeCreateInstance(type);
                 }
                 catch (Exception ex)
                 {
@@ -1727,7 +1809,7 @@ namespace RS.SimpleJsonUnity
             object instance;
             try
             {
-                instance = Activator.CreateInstance(type);
+                instance = SimpleJson.SafeCreateInstance(type);
             }
             catch (Exception ex)
             {
@@ -2613,13 +2695,22 @@ namespace RS.SimpleJsonUnity
         private static volatile IJsonSerializerStrategy
             _currentJsonSerializerStrategy;
 
+#if SIMPLE_JSON_WEBGL
+        // WebGL 单线程：无需锁
+#else
         private static readonly object _strategyLock = new object();
+#endif
 
         // ── AOT 类型注册 ─────────────────────────────────────────────
 
         private static readonly Dictionary<string,Type> _aotTypeRegistry =
             new Dictionary<string,Type>();
+
+#if SIMPLE_JSON_WEBGL
+        // WebGL 单线程：无需锁
+#else
         private static readonly object _registryLock = new object();
+#endif
 
         /// <summary>
         /// 注册AOT类型，用于在AOT环境中创建泛型集合实例。
@@ -2631,10 +2722,14 @@ namespace RS.SimpleJsonUnity
             if (type == null)
                 throw new ArgumentNullException("type");
 
+#if SIMPLE_JSON_WEBGL
+            _aotTypeRegistry[typeName] = type;
+#else
             lock (_registryLock)
             {
                 _aotTypeRegistry[typeName] = type;
             }
+#endif
         }
 
         /// <summary>
@@ -2644,11 +2739,16 @@ namespace RS.SimpleJsonUnity
         /// <returns>已注册的类型，未找到返回null</returns>
         public static Type GetRegisteredAotType(string typeName)
         {
+#if SIMPLE_JSON_WEBGL
+            Type type;
+            return _aotTypeRegistry.TryGetValue(typeName,out type) ? type : null;
+#else
             lock (_registryLock)
             {
                 Type type;
                 return _aotTypeRegistry.TryGetValue(typeName,out type) ? type : null;
             }
+#endif
         }
 
         /// <summary>
@@ -2678,6 +2778,32 @@ namespace RS.SimpleJsonUnity
             RegisterAotType("List<DateTime>",typeof(List<DateTime>));
             RegisterAotType("List<Guid>",typeof(List<Guid>));
         }
+
+        /// <summary>
+        /// AOT 安全的类型创建。优先使用已注册的 AOT 类型，避免 MakeGenericType 在 AOT 环境下失败。
+        /// </summary>
+        /// <param name="type">要创建实例的类型</param>
+        /// <returns>类型实例</returns>
+        internal static object SafeCreateInstance(Type type)
+        {
+            Type createType = GetRegisteredAotType(type.FullName) ?? type;
+            return Activator.CreateInstance(createType);
+        }
+
+        /// <summary>
+        /// AOT 安全的 List 创建。优先使用已注册类型，避免 MakeGenericType。
+        /// 失败时返回 null（不抛异常）。
+        /// </summary>
+        /// <param name="elementType">列表元素类型</param>
+        /// <returns>IList 实例，失败返回 null</returns>
+        internal static IList SafeCreateList(Type elementType)
+        {
+            Type fallbackType = typeof(List<>).MakeGenericType(elementType);
+            Type aotType = GetRegisteredAotType(fallbackType.FullName) ?? fallbackType;
+            try { return (IList)Activator.CreateInstance(aotType); }
+            catch { return null; }
+        }
+
         /// <summary>
         /// jsonString 是 JSON 字符串的原始文本，包含转义字符（如 \n、\t、\\ 等）。此方法将这些转义字符转换为它们对应的实际字符，使字符串更适合在 JavaScript 中使用。
         /// </summary>
@@ -2755,12 +2881,17 @@ namespace RS.SimpleJsonUnity
             {
                 if (_currentJsonSerializerStrategy == null)
                 {
+#if SIMPLE_JSON_WEBGL
+                    _currentJsonSerializerStrategy =
+                        new DefaultJsonSerializationStrategy();
+#else
                     lock (_strategyLock)
                     {
                         if (_currentJsonSerializerStrategy == null)
                             _currentJsonSerializerStrategy =
                                 new DefaultJsonSerializationStrategy();
                     }
+#endif
                 }
                 return _currentJsonSerializerStrategy;
             }
@@ -3696,13 +3827,13 @@ namespace RS.SimpleJsonUnity
                     }
                     else
                     {
-                        try { result = (IList)Activator.CreateInstance(targetType); }
+                        try { result = (IList)SimpleJson.SafeCreateInstance(targetType); }
                         catch (MissingMethodException)
                         {
-                            Type fallbackType = typeof(List<>).MakeGenericType(elementType);
-                            result = (IList)Activator.CreateInstance(fallbackType);
+                            result = SimpleJson.SafeCreateList(elementType);
                         }
                         catch { return null; }
+                        if (result == null) return null;
                     }
 
                     int idx = 0;
@@ -3731,7 +3862,7 @@ namespace RS.SimpleJsonUnity
                         Type valueType = args[1];
 
                         IDictionary result;
-                        try { result = (IDictionary)Activator.CreateInstance(targetType); }
+                        try { result = (IDictionary)SimpleJson.SafeCreateInstance(targetType); }
                         catch { return null; }
 
                         foreach (var kvp in dictVal)
@@ -3767,6 +3898,20 @@ namespace RS.SimpleJsonUnity
             IDictionary<string, Func<object, object>> cached;
             if (m_getterCache.TryGetValue(cacheKey, out cached)) return cached;
 
+#if SIMPLE_JSON_WEBGL
+            IDictionary<string, Func<object, object>> built;
+            try { built = BuildGettersWithDataContract(type, ignoreLowerCaseForDeserialization, useJsonAliasForSerialization); }
+            catch (Exception ex)
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                Guard.LogError("GetOrBuildGetters: Failed for \"" +
+                    type.FullName + "\". " + ex.Message);
+#endif
+                return new Dictionary<string, Func<object, object>>();
+            }
+            m_getterCache[cacheKey] = built;
+            return built;
+#else
             lock (m_getterBuildLock)
             {
                 if (m_getterCache.TryGetValue(cacheKey, out cached)) return cached;
@@ -3783,6 +3928,7 @@ namespace RS.SimpleJsonUnity
                 m_getterCache[cacheKey] = built;
                 return built;
             }
+#endif
         }
 
         protected override IDictionary<string, Action<object, object>> GetOrBuildSetters(Type type)
@@ -3791,6 +3937,20 @@ namespace RS.SimpleJsonUnity
             IDictionary<string, Action<object, object>> cached;
             if (m_setterCache.TryGetValue(cacheKey, out cached)) return cached;
 
+#if SIMPLE_JSON_WEBGL
+            IDictionary<string, Action<object, object>> built;
+            try { built = BuildSettersWithDataContract(type, ignoreLowerCaseForDeserialization); }
+            catch (Exception ex)
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+                Guard.LogError("GetOrBuildSetters: Failed for \"" +
+                    type.FullName + "\". " + ex.Message);
+#endif
+                return new Dictionary<string, Action<object, object>>();
+            }
+            m_setterCache[cacheKey] = built;
+            return built;
+#else
             lock (m_setterBuildLock)
             {
                 if (m_setterCache.TryGetValue(cacheKey, out cached)) return cached;
@@ -3807,6 +3967,7 @@ namespace RS.SimpleJsonUnity
                 m_setterCache[cacheKey] = built;
                 return built;
             }
+#endif
         }
     }
 }
