@@ -41,7 +41,7 @@ namespace RS.SimpleJsonUnity.Tests
             Console.WriteLine("\n========================================");
             Console.WriteLine($"结果: {m_passed} 通过, {m_failed} 失败, {m_passed + m_failed} 总计");
             Console.WriteLine("========================================");
-            Console.ReadLine();
+            //Console.ReadLine();
             Environment.Exit(m_failed > 0 ? 1 : 0);
         }
 
