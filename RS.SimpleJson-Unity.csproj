@@ -5,7 +5,7 @@
     <RootNamespace>RS.SimpleJsonUnity</RootNamespace>
     <BaseOutputPath>E:\MyProjects\RS.SimpleJson-Unity\bin</BaseOutputPath>
        <!-- 定义 VersionPrefix，值为你需要的版本前缀 -->
-    <VersionPrefix>2.2.0.1</VersionPrefix>
+    <VersionPrefix>2.3.0.1</VersionPrefix>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <Title>RS.SimpleJson-Unity</Title>
     <Description>SimpleJson-Unity.cs 是一个专为Unity优化的轻量级JSON序列化/反序列化库，基于SimpleJson项目改进而来，特别针对Unity的AOT（Ahead-Of-Time）编译环境进行了优化。
@@ -19,6 +19,54 @@ SimpleJson-Unity.cs is a lightweight JSON serialization/deserialization library 
     <AssemblyVersion>2.2.0.1</AssemblyVersion>
     <FileVersion>2.2.0.1</FileVersion>
     <Version>$(VersionPrefix)</Version>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|netstandard2.1|AnyCPU'">
+    <DefineConstants>$(DefineConstants);RELEASE;NETSTANDARD;NETSTANDARD21</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|netstandard2.0|AnyCPU'">
+    <DefineConstants>$(DefineConstants);RELEASE;NETSTANDARD;NETSTANDARD20</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|net45|AnyCPU'">
+    <DefineConstants>$(DefineConstants);RELEASE;NET45</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|net40|AnyCPU'">
+    <DefineConstants>$(DefineConstants);RELEASE;NET40</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|net35|AnyCPU'">
+    <DefineConstants>$(DefineConstants);RELEASE;NET35</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|net20|AnyCPU'">
+    <DefineConstants>$(DefineConstants);RELEASE;NET20</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|netstandard2.1|AnyCPU'">
+    <DefineConstants>$(DefineConstants);DEBUG;NETSTANDARD21;NETSTANDARD</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|netstandard2.0|AnyCPU'">
+    <DefineConstants>$(DefineConstants);DEBUG;NETSTANDARD20;NETSTANDARD</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net45|AnyCPU'">
+    <DefineConstants>$(DefineConstants);DEBUG;NET45</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net40|AnyCPU'">
+    <DefineConstants>$(DefineConstants);DEBUG;NET40</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net35|AnyCPU'">
+    <DefineConstants>$(DefineConstants);DEBUG;NET35</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net20|AnyCPU'">
+    <DefineConstants>$(DefineConstants);DEBUG;NET20</DefineConstants>
   </PropertyGroup>
 
 
