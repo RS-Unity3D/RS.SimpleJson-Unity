@@ -1,10 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net45;netstandard2.0;netstandard2.1</TargetFrameworks>
+    <TargetFrameworks>net20;net35;net40;net45;netstandard2.0;netstandard2.1</TargetFrameworks>
     <RootNamespace>RS.SimpleJsonUnity</RootNamespace>
     <BaseOutputPath>E:\MyProjects\RS.SimpleJson-Unity\bin</BaseOutputPath>
-    <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
+       <!-- 定义 VersionPrefix，值为你需要的版本前缀 -->
+    <VersionPrefix>2.2.0.1</VersionPrefix>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <Title>RS.SimpleJson-Unity</Title>
     <Description>SimpleJson-Unity.cs 是一个专为Unity优化的轻量级JSON序列化/反序列化库，基于SimpleJson项目改进而来，特别针对Unity的AOT（Ahead-Of-Time）编译环境进行了优化。
 SimpleJson-Unity.cs is a lightweight JSON serialization/deserialization library optimized specifically for Unity, improved based on the SimpleJson project and specially optimized for Unity's AOT (Ahead-Of-Time) compilation environment.</Description>
@@ -14,8 +16,9 @@ SimpleJson-Unity.cs is a lightweight JSON serialization/deserialization library 
     <RepositoryType>git</RepositoryType>
     <PackageTags>json;aot;unity;unity 3d</PackageTags>
     <PackageOutputPath>E:\MyProjects\RS.SimpleJson-Unity\nuget package</PackageOutputPath>
-    <AssemblyVersion>2.0.1.0</AssemblyVersion>
-    <FileVersion>2.0.1.0</FileVersion>
+    <AssemblyVersion>2.2.0.1</AssemblyVersion>
+    <FileVersion>2.2.0.1</FileVersion>
+    <Version>$(VersionPrefix)</Version>
   </PropertyGroup>
 
 
@@ -42,6 +45,7 @@ SimpleJson-Unity.cs is a lightweight JSON serialization/deserialization library 
     <None Remove=".gitignore" />
     <None Remove="LICENSE" />
     <None Remove="out.txt" />
+    <None Remove="README.md" />
     <None Remove="test_err.txt" />
     <None Remove="test_out.txt" />
     <None Remove="test_output.txt" />
@@ -54,7 +58,7 @@ SimpleJson-Unity.cs is a lightweight JSON serialization/deserialization library 
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="README.md">
+    <None Include="Assets\RS.SimpleJson-Unity\README.md">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>
