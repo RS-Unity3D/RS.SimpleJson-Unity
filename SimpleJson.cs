@@ -1769,6 +1769,14 @@ namespace RS.SimpleJsonUnity
                 {
                     dict = (IDictionary)SimpleJson.SafeCreateInstance(type);
                 }
+                catch (MissingMethodException)
+                {
+                    if (genericArgs.Length >= 2)
+                        dict = SimpleJson.SafeCreateDictionary(keyType,valueType);
+                    else
+                        dict = null;
+                    if (dict == null) throw;
+                }
                 catch (Exception ex)
                 {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
@@ -2855,6 +2863,7 @@ namespace RS.SimpleJsonUnity
         /// </summary>
         public static void InitializeCommonAotTypes()
         {
+            // Dictionary<string, T>
             RegisterAotType(typeof(Dictionary<string,object>),() => new Dictionary<string,object>());
             RegisterAotType(typeof(Dictionary<string,string>),() => new Dictionary<string,string>());
             RegisterAotType(typeof(Dictionary<string,int>),() => new Dictionary<string,int>());
@@ -2865,7 +2874,10 @@ namespace RS.SimpleJsonUnity
             RegisterAotType(typeof(Dictionary<string,decimal>),() => new Dictionary<string,decimal>());
             RegisterAotType(typeof(Dictionary<string,DateTime>),() => new Dictionary<string,DateTime>());
             RegisterAotType(typeof(Dictionary<string,Guid>),() => new Dictionary<string,Guid>());
+            RegisterAotType(typeof(Dictionary<string,byte>),() => new Dictionary<string,byte>());
+            RegisterAotType(typeof(Dictionary<string,short>),() => new Dictionary<string,short>());
 
+            // List<T>
             RegisterAotType(typeof(List<object>),() => new List<object>());
             RegisterAotType(typeof(List<string>),() => new List<string>());
             RegisterAotType(typeof(List<int>),() => new List<int>());
@@ -2876,6 +2888,15 @@ namespace RS.SimpleJsonUnity
             RegisterAotType(typeof(List<decimal>),() => new List<decimal>());
             RegisterAotType(typeof(List<DateTime>),() => new List<DateTime>());
             RegisterAotType(typeof(List<Guid>),() => new List<Guid>());
+            RegisterAotType(typeof(List<byte>),() => new List<byte>());
+            RegisterAotType(typeof(List<short>),() => new List<short>());
+
+            // 常用嵌套泛型集合
+            RegisterAotType(typeof(List<List<string>>),() => new List<List<string>>());
+            RegisterAotType(typeof(List<List<int>>),() => new List<List<int>>());
+            RegisterAotType(typeof(Dictionary<string,List<string>>),() => new Dictionary<string,List<string>>());
+            RegisterAotType(typeof(Dictionary<string,List<int>>),() => new Dictionary<string,List<int>>());
+            RegisterAotType(typeof(Dictionary<string,Dictionary<string,string>>),() => new Dictionary<string,Dictionary<string,string>>());
         }
 
         /// <summary>
@@ -2900,7 +2921,10 @@ namespace RS.SimpleJsonUnity
         /// <returns>IList 实例，失败返回 null</returns>
         internal static IList SafeCreateList(Type elementType)
         {
-            Type fallbackType = typeof(List<>).MakeGenericType(elementType);
+            Type fallbackType;
+            try { fallbackType = typeof(List<>).MakeGenericType(elementType); }
+            catch (ArgumentException) { return null; }
+
             Func<object> factory = GetRegisteredAotFactory(fallbackType);
             if (factory != null)
             {
@@ -2909,6 +2933,23 @@ namespace RS.SimpleJsonUnity
             }
 
             try { return (IList)Activator.CreateInstance(fallbackType); }
+            catch { return null; }
+        }
+
+        internal static IDictionary SafeCreateDictionary(Type keyType,Type valueType)
+        {
+            Type dictType;
+            try { dictType = typeof(Dictionary<,>).MakeGenericType(keyType,valueType); }
+            catch (ArgumentException) { return null; }
+
+            Func<object> factory = GetRegisteredAotFactory(dictType);
+            if (factory != null)
+            {
+                try { return (IDictionary)factory(); }
+                catch { return null; }
+            }
+
+            try { return (IDictionary)Activator.CreateInstance(dictType); }
             catch { return null; }
         }
 
@@ -3971,7 +4012,12 @@ namespace RS.SimpleJsonUnity
 
                         IDictionary result;
                         try { result = (IDictionary)SimpleJson.SafeCreateInstance(targetType); }
+                        catch (MissingMethodException)
+                        {
+                            result = SimpleJson.SafeCreateDictionary(keyType,valueType);
+                        }
                         catch { return null; }
+                        if (result == null) return null;
 
                         foreach (var kvp in dictVal)
                         {
