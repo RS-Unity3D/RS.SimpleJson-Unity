@@ -54,7 +54,7 @@
 ////#define NETFX_CORE;
 
 ////NOTE:If you are targetting WinStore, WP8 and NET4.5+ PCL make sure to #define SIMPLE_JSON_TYPEINFO;
-////#define SIMPLE_JSON_TYPEINFO;
+////#define SIMPLE_JSON_TYPEINFO
 //// original json parsing code from http://techblog.procurios.nl/k/618/news/view/14605/14863/How-do-I-write-my-own-parser-for-JSON.html
 
 //NOTE:SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
@@ -807,9 +807,10 @@ namespace RS.SimpleJsonUnity
             return GetGenericTypeArguments(type)[0];
         }
 
-#if SIMPLE_JSON_TYPEINFO
+
         public static IEnumerable<PropertyInfo> GetProperties(Type type,BindingFlags bindingAttr)
         {
+#if SIMPLE_JSON_TYPEINFO
             var result = new List<PropertyInfo>();
             foreach (PropertyInfo p in type.GetRuntimeProperties())
             {
@@ -824,10 +825,14 @@ namespace RS.SimpleJsonUnity
                 if (match) result.Add(p);
             }
             return result;
+#else
+            return type.GetProperties(bindingAttr);
+#endif
         }
 
         public static IEnumerable<FieldInfo> GetFields(Type type,BindingFlags bindingAttr)
         {
+#if SIMPLE_JSON_TYPEINFO
             var result = new List<FieldInfo>();
             foreach (FieldInfo f in type.GetRuntimeFields())
             {
@@ -839,48 +844,28 @@ namespace RS.SimpleJsonUnity
                 if (match) result.Add(f);
             }
             return result;
-        }
-
-        public static MethodInfo GetGetterMethod(PropertyInfo property)
-        {
-            return property.GetMethod;
-        }
-
-        public static MethodInfo GetSetterMethod(PropertyInfo property)
-        {
-            return property.SetMethod;
-        }
-
-        public static IEnumerable<ConstructorInfo> GetConstructors(Type type)
-        {
-            return type.GetTypeInfo().DeclaredConstructors;
-        }
 #else
-        public static IEnumerable<PropertyInfo> GetProperties(Type type,BindingFlags bindingAttr)
-        {
-            return type.GetProperties(bindingAttr);
-        }
-
-        public static IEnumerable<FieldInfo> GetFields(Type type,BindingFlags bindingAttr)
-        {
             return type.GetFields(bindingAttr);
+#endif
         }
 
         public static MethodInfo GetGetterMethod(PropertyInfo property)
         {
+#if SIMPLE_JSON_TYPEINFO
+            return property.GetMethod;
+#else
             return property.GetGetMethod(true);
+#endif
         }
 
         public static MethodInfo GetSetterMethod(PropertyInfo property)
         {
+#if SIMPLE_JSON_TYPEINFO
+            return property.SetMethod;
+#else
             return property.GetSetMethod(true);
-        }
-
-        public static IEnumerable<ConstructorInfo> GetConstructors(Type type)
-        {
-            return type.GetConstructors();
-        }
 #endif
+        }
 
         public static bool IsValueType(Type type)
         {
@@ -888,35 +873,59 @@ namespace RS.SimpleJsonUnity
         }
 
         //-------------------------------------
+        #region GetSetDelegate
         public delegate object GetDelegate(object source);
         public delegate void SetDelegate(object source,object value);
-        public static ConstructorInfo GetConstructorInfo(Type type,params Type[] argsType)
+
+
+        public static GetDelegate GetGetMethod(PropertyInfo propertyInfo)
         {
-            IEnumerable<ConstructorInfo> constructorInfos = GetConstructors(type);
-            int i;
-            bool matches;
-            foreach (ConstructorInfo constructorInfo in constructorInfos)
-            {
-                ParameterInfo[] parameters = constructorInfo.GetParameters();
-                if (argsType.Length != parameters.Length)
-                    continue;
+            return GetGetMethodByReflection(propertyInfo);
+        }
+        public static GetDelegate GetGetMethod(FieldInfo fieldInfo)
+        {
+            return GetGetMethodByReflection(fieldInfo);
+        }
+        public static GetDelegate GetGetMethodByReflection(PropertyInfo propertyInfo)
+        {
+            MethodInfo methodInfo = GetGetterMethodInfo(propertyInfo);
+            return delegate (object source) { return methodInfo.Invoke(source,EmptyObjects); };
+        }
 
-                i = 0;
-                matches = true;
-                foreach (ParameterInfo parameterInfo in constructorInfo.GetParameters())
-                {
-                    if (parameterInfo.ParameterType != argsType[i])
-                    {
-                        matches = false;
-                        break;
-                    }
-                }
+        public static GetDelegate GetGetMethodByReflection(FieldInfo fieldInfo)
+        {
+            return delegate (object source) { return fieldInfo.GetValue(source); };
+        }
+        public static SetDelegate GetSetMethod(PropertyInfo propertyInfo)
+        {
+            return GetSetMethodByReflection(propertyInfo);
+        }
+        public static SetDelegate GetSetMethod(FieldInfo fieldInfo)
+        {
+            return GetSetMethodByReflection(fieldInfo);
+        }
+        public static SetDelegate GetSetMethodByReflection(PropertyInfo propertyInfo)
+        {
+            MethodInfo methodInfo = GetSetterMethodInfo(propertyInfo);
+            return delegate (object source,object value) { methodInfo.Invoke(source,new object[] { value }); };
+        }
 
-                if (matches)
-                    return constructorInfo;
-            }
+        public static SetDelegate GetSetMethodByReflection(FieldInfo fieldInfo)
+        {
+            return delegate (object source,object value) { fieldInfo.SetValue(source,value); };
+        }
 
-            return null;
+        static readonly object[] EmptyObjects = new object[] { };
+        #endregion
+
+        #region 构造器
+        public static IEnumerable<ConstructorInfo> GetConstructors(Type type)
+        {
+#if SIMPLE_JSON_TYPEINFO
+            return type.GetTypeInfo().DeclaredConstructors;
+#else
+            return type.GetConstructors();
+#endif
         }
         public static MethodInfo GetGetterMethodInfo(PropertyInfo propertyInfo)
         {
@@ -957,44 +966,36 @@ namespace RS.SimpleJsonUnity
         {
             return delegate (object[] args) { return Activator.CreateInstance(type); };
         }
-        public static GetDelegate GetGetMethod(PropertyInfo propertyInfo)
+        public static ConstructorInfo GetConstructorInfo(Type type,params Type[] argsType)
         {
-            return GetGetMethodByReflection(propertyInfo);
-        }
-        public static GetDelegate GetGetMethod(FieldInfo fieldInfo)
-        {
-            return GetGetMethodByReflection(fieldInfo);
-        }
-        public static GetDelegate GetGetMethodByReflection(PropertyInfo propertyInfo)
-        {
-            MethodInfo methodInfo = GetGetterMethodInfo(propertyInfo);
-            return delegate (object source) { return methodInfo.Invoke(source,EmptyObjects); };
-        }
+            IEnumerable<ConstructorInfo> constructorInfos = GetConstructors(type);
+            int i;
+            bool matches;
+            foreach (ConstructorInfo constructorInfo in constructorInfos)
+            {
+                ParameterInfo[] parameters = constructorInfo.GetParameters();
+                if (argsType.Length != parameters.Length)
+                    continue;
 
-        public static GetDelegate GetGetMethodByReflection(FieldInfo fieldInfo)
-        {
-            return delegate (object source) { return fieldInfo.GetValue(source); };
-        }
-        public static SetDelegate GetSetMethod(PropertyInfo propertyInfo)
-        {
-            return GetSetMethodByReflection(propertyInfo);
-        }
-        public static SetDelegate GetSetMethod(FieldInfo fieldInfo)
-        {
-            return GetSetMethodByReflection(fieldInfo);
-        }
-        public static SetDelegate GetSetMethodByReflection(PropertyInfo propertyInfo)
-        {
-            MethodInfo methodInfo = GetSetterMethodInfo(propertyInfo);
-            return delegate (object source,object value) { methodInfo.Invoke(source,new object[] { value }); };
-        }
+                i = 0;
+                matches = true;
+                foreach (ParameterInfo parameterInfo in constructorInfo.GetParameters())
+                {
+                    if (parameterInfo.ParameterType != argsType[i])
+                    {
+                        matches = false;
+                        break;
+                    }
+                }
 
-        public static SetDelegate GetSetMethodByReflection(FieldInfo fieldInfo)
-        {
-            return delegate (object source,object value) { fieldInfo.SetValue(source,value); };
-        }
+                if (matches)
+                    return constructorInfo;
+            }
 
-        static readonly object[] EmptyObjects = new object[] { };
+            return null;
+        }
+        #endregion
+
         //---构造函数-----------------------------
         public delegate object ConstructorDelegate(params object[] args);
         internal delegate TValue ThreadSafeDictionaryValueFactory<TKey, TValue>(TKey key);
@@ -1355,8 +1356,8 @@ namespace RS.SimpleJsonUnity
 #endif
     class DefaultJsonSerializationStrategy : IJsonSerializerStrategy
     {
-      
-        internal static readonly ReflectionUtils.OmitSentinel OmitValue = new  ReflectionUtils.OmitSentinel();
+
+        internal static readonly ReflectionUtils.OmitSentinel OmitValue = new ReflectionUtils.OmitSentinel();
 
         // volatile 保证多线程可见性
         // 注：在多线程中动态切换 ignoreLowerCaseForDeserialization 不是线程安全的。
@@ -1643,6 +1644,9 @@ namespace RS.SimpleJsonUnity
                     {
                         foreach (string alias in aliasAttr.Aliases)
                         {
+                            if (!aliasAttr.AcceptOriginalName && ignoreLowerCase &&
+                                string.Equals(alias,originalKey,StringComparison.OrdinalIgnoreCase))
+                                continue;
                             setters[alias] = safeSetter;
                         }
                         if (aliasAttr.AcceptOriginalName)
@@ -1725,6 +1729,14 @@ namespace RS.SimpleJsonUnity
             var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization,useJsonAliasForSerialization);
             IDictionary<string,Func<object,object>> cached;
             if (m_getterCache.TryGetValue(cacheKey,out cached)) return cached;
+
+            IDictionary<string,Func<object,object>> aotGetters = SimpleJson.GetRegisteredAotGetters(type);
+            if (aotGetters != null)
+            {
+                m_getterCache[cacheKey] = aotGetters;
+                return aotGetters;
+            }
+
 #if SIMPLE_JSON_WEBGL
             IDictionary<string,Func<object,object>> built;
             try { built = BuildGetters(type,useJsonAliasForSerialization,this); }
@@ -1764,6 +1776,14 @@ namespace RS.SimpleJsonUnity
             var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization);
             IDictionary<string,Action<object,object>> cached;
             if (m_setterCache.TryGetValue(cacheKey,out cached)) return cached;
+
+            IDictionary<string,Action<object,object>> aotSetters = SimpleJson.GetRegisteredAotSetters(type);
+            if (aotSetters != null)
+            {
+                m_setterCache[cacheKey] = aotSetters;
+                return aotSetters;
+            }
+
 #if SIMPLE_JSON_WEBGL
             IDictionary<string,Action<object,object>> built;
             try { built = BuildSetters(type,ignoreLowerCaseForDeserialization,this); }
@@ -3167,6 +3187,12 @@ namespace RS.SimpleJsonUnity
         private static readonly Dictionary<Type,Func<object>> _aotFactoryByType =
             new Dictionary<Type,Func<object>>();
 
+        private static readonly Dictionary<Type,IDictionary<string,Action<object,object>>> _aotSetterCache =
+            new Dictionary<Type,IDictionary<string,Action<object,object>>>();
+
+        private static readonly Dictionary<Type,IDictionary<string,Func<object,object>>> _aotGetterCache =
+            new Dictionary<Type,IDictionary<string,Func<object,object>>>();
+
 #if SIMPLE_JSON_WEBGL
         // WebGL 单线程：无需锁
 #else
@@ -3305,6 +3331,62 @@ namespace RS.SimpleJsonUnity
 #endif
         }
 
+        public static void RegisterAotSetters(Type type,IDictionary<string,Action<object,object>> setters)
+        {
+            if (type == null) throw new ArgumentNullException("type");
+            if (setters == null) throw new ArgumentNullException("setters");
+#if SIMPLE_JSON_WEBGL
+            _aotSetterCache[type] = setters;
+#else
+            lock (_registryLock)
+            {
+                _aotSetterCache[type] = setters;
+            }
+#endif
+        }
+
+        public static void RegisterAotGetters(Type type,IDictionary<string,Func<object,object>> getters)
+        {
+            if (type == null) throw new ArgumentNullException("type");
+            if (getters == null) throw new ArgumentNullException("getters");
+#if SIMPLE_JSON_WEBGL
+            _aotGetterCache[type] = getters;
+#else
+            lock (_registryLock)
+            {
+                _aotGetterCache[type] = getters;
+            }
+#endif
+        }
+
+        public static IDictionary<string,Action<object,object>> GetRegisteredAotSetters(Type type)
+        {
+#if SIMPLE_JSON_WEBGL
+            IDictionary<string,Action<object,object>> setters;
+            return _aotSetterCache.TryGetValue(type,out setters) ? setters : null;
+#else
+            lock (_registryLock)
+            {
+                IDictionary<string,Action<object,object>> setters;
+                return _aotSetterCache.TryGetValue(type,out setters) ? setters : null;
+            }
+#endif
+        }
+
+        public static IDictionary<string,Func<object,object>> GetRegisteredAotGetters(Type type)
+        {
+#if SIMPLE_JSON_WEBGL
+            IDictionary<string,Func<object,object>> getters;
+            return _aotGetterCache.TryGetValue(type,out getters) ? getters : null;
+#else
+            lock (_registryLock)
+            {
+                IDictionary<string,Func<object,object>> getters;
+                return _aotGetterCache.TryGetValue(type,out getters) ? getters : null;
+            }
+#endif
+        }
+
         /// <summary>
         /// 初始化常用的AOT类型注册。
         /// 默认支持全面的基础类型，包括数值类型、字符串、日期时间、GUID、Uri等。
@@ -3419,7 +3501,7 @@ namespace RS.SimpleJsonUnity
             RegisterAotType(typeof(List<Dictionary<string,object>>),() => new List<Dictionary<string,object>>());
         }
 
- 
+
 
         /// <summary>
         /// jsonString 是 JSON 字符串的原始文本，包含转义字符（如 \n、\t、\\ 等）。此方法将这些转义字符转换为它们对应的实际字符，使字符串更适合在 JavaScript 中使用。
@@ -3680,7 +3762,7 @@ namespace RS.SimpleJsonUnity
         /// Determines if a given object is numeric in any way
         /// (can be integer, double, null, etc).
         /// </summary>
-       internal static bool IsNumeric(object value)
+        internal static bool IsNumeric(object value)
         {
             if (value is sbyte) return true;
             if (value is byte) return true;
@@ -4210,18 +4292,33 @@ namespace RS.SimpleJsonUnity
                     };
 
                     string jsonKey = GetDataMemberJsonKey(member,dma);
-                    setters[jsonKey] = safeSetter;
+                    JsonAliasAttribute aliasAttr = ReflectionUtils.GetAttribute<JsonAliasAttribute>(member);
+
+                    if (aliasAttr != null && !aliasAttr.AcceptOriginalName)
+                    {
+                        if (!string.Equals(jsonKey,member.Name,StringComparison.Ordinal))
+                            setters[jsonKey] = safeSetter;
+                    }
+                    else
+                    {
+                        setters[jsonKey] = safeSetter;
+                    }
 
                     if (dma != null && !string.IsNullOrEmpty(dma.Name))
                     {
-                        setters[member.Name] = safeSetter;
+                        if (aliasAttr == null || aliasAttr.AcceptOriginalName)
+                            setters[member.Name] = safeSetter;
                     }
 
-                    JsonAliasAttribute aliasAttr = ReflectionUtils.GetAttribute<JsonAliasAttribute>(member);
                     if (aliasAttr != null)
                     {
                         foreach (string alias in aliasAttr.Aliases)
+                        {
+                            if (!aliasAttr.AcceptOriginalName && ignoreLowerCase &&
+                                string.Equals(alias,member.Name,StringComparison.OrdinalIgnoreCase))
+                                continue;
                             setters[alias] = safeSetter;
+                        }
                         if (aliasAttr.AcceptOriginalName)
                             setters[member.Name] = safeSetter;
                     }
