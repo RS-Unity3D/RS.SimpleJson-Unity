@@ -135,15 +135,15 @@ namespace RS.SimpleJsonUnity
     public delegate void Action<T1, T2, T3>(T1 arg1,T2 arg2,T3 arg3);
     //public delegate void Action<T1, T2, T3, T4>(T1 arg1,T2 arg2,T3 arg3,T4 arg4);
 
-    //public delegate TResult Func<TResult>();
+    public delegate TResult Func<TResult>();
     public delegate TResult Func<T, TResult>(T arg);
     //public delegate TResult Func<T1, T2, TResult>(T1 arg1,T2 arg2);
     //public delegate TResult Func<T1, T2, T3, TResult>(T1 arg1,T2 arg2,T3 arg3);
     //public delegate TResult Func<T1, T2, T3, T4, TResult>(T1 arg1,T2 arg2,T3 arg3,T4 arg4);
 #elif NET35
-    
+
 #endif
-#endregion
+    #endregion
 
     // ──────────────────────────────────────────────────────────────
     // Attributes
@@ -985,7 +985,7 @@ namespace RS.SimpleJsonUnity
             return m_serializationStack.Value;
         }
 #endif
-#endregion
+        #endregion
         public DefaultJsonSerializationStrategy()
         {
 #if SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE
@@ -1020,13 +1020,21 @@ namespace RS.SimpleJsonUnity
             if (keyType.IsEnum)
             {
 #if !SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
-                return Enum.Parse(keyType,strKey,true);
+                try { return Enum.Parse(keyType,strKey,true); }
+                catch (ArgumentException)
+                {
+                    if (long.TryParse(strKey,out long numVal))
+                        return SimpleJson.SafeEnumConversion(numVal,keyType);
+                    throw;
+                }
 #else
-            object numVal = Convert.ChangeType(
+            if (long.TryParse(strKey,out long numVal))
+                return SimpleJson.SafeEnumConversion(numVal,keyType);
+            object numVal2 = Convert.ChangeType(
                 strKey,
                 Enum.GetUnderlyingType(keyType),
                 CultureInfo.InvariantCulture);
-            return Enum.ToObject(keyType, numVal);
+            return Enum.ToObject(keyType, numVal2);
 #endif
             }
 
@@ -1035,7 +1043,7 @@ namespace RS.SimpleJsonUnity
                 strKey,keyType,CultureInfo.InvariantCulture);
         }
 
-        public void ClearCache()
+        public virtual void ClearCache()
         {
 #if SIMPLE_JSON_WEBGL
             m_getterCache.Clear();
@@ -1051,7 +1059,7 @@ namespace RS.SimpleJsonUnity
             }
 #endif
         }
-                      
+
         protected virtual object CoerceValue(object val,Type targetType,IJsonSerializerStrategy strategy)
         {
             if (val == null) return null;
@@ -1066,7 +1074,7 @@ namespace RS.SimpleJsonUnity
 
         // ── BuildGetters ────────────────────────────────────────────
 
-        protected virtual  IDictionary<string,Func<object,object>>
+        protected virtual IDictionary<string,Func<object,object>>
             BuildGetters(Type type,bool useJsonAlias,IJsonSerializerStrategy strategy)
         {
             var getters = new Dictionary<string,Func<object,object>>();
@@ -1271,7 +1279,7 @@ namespace RS.SimpleJsonUnity
 
         // ── MapClrMemberNameToJsonFieldName ─────────────────────────
 
-        public virtual string MapClrMemberNameToJsonFieldName(string clrName)
+        protected virtual string MapClrMemberNameToJsonFieldName(string clrName)
         {
             if (clrName == null) return clrName;
             // SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE 仅影响反序列化（大小写无关匹配），
@@ -1397,7 +1405,7 @@ namespace RS.SimpleJsonUnity
                 output = ((Guid)input).ToString("D",
                     CultureInfo.InvariantCulture);
                 return true;
-            }
+            }          
             // char
             if (input is char)
             {
@@ -1504,7 +1512,16 @@ namespace RS.SimpleJsonUnity
                     if (str.Length == 0) return default(Guid);
                     return new Guid(str);
                 }
-                if (type == typeof(Uri)) return new Uri(str);
+                if (type == typeof(Uri)) {
+                    //return new Uri(str); 
+                    bool isValid = Uri.IsWellFormedUriString(str,UriKind.RelativeOrAbsolute);
+
+                    Uri result;
+                    if (isValid && Uri.TryCreate(str,UriKind.RelativeOrAbsolute,out result))
+                        return result;
+
+                    return null;
+                }
                 if (type == typeof(char))
                 {
                     if (str.Length == 1) return str[0];
@@ -1560,8 +1577,16 @@ namespace RS.SimpleJsonUnity
                 if (type.IsEnum)
                 {
 #if !SIMPLE_JSON_NO_REFLECTION_ENUM_PARSE
-                    return Enum.Parse(type,str,true);
+                    try { return Enum.Parse(type,str,true); }
+                    catch (ArgumentException)
+                    {
+                        if (long.TryParse(str,out long numVal))
+                            return SimpleJson.SafeEnumConversion(numVal,type);
+                        throw;
+                    }
 #else
+                if (long.TryParse(str,out long numVal))
+                    return SimpleJson.SafeEnumConversion(numVal,type);
                 return Enum.ToObject(type,
                     Convert.ChangeType(str,
                         Enum.GetUnderlyingType(type),
@@ -1577,17 +1602,11 @@ namespace RS.SimpleJsonUnity
                 || value is byte || value is sbyte
                 || value is decimal || value is float)
             {
-                // 浮点 → 整数/枚举时必须截断小数部分，
-                // Convert.ToInt32 等使用银行家舍入，不符合 JSON 语义
+                if (type.IsEnum)
+                    return SimpleJson.SafeEnumConversion(value,type);
+
                 if (value is double || value is float || value is decimal)
                 {
-                    if (type.IsEnum)
-                        return Enum.ToObject(type,
-                            Convert.ChangeType(
-                                Math.Truncate(Convert.ToDecimal(value,CultureInfo.InvariantCulture)),
-                                Enum.GetUnderlyingType(type),
-                                CultureInfo.InvariantCulture));
-
                     if (type == typeof(int))
                         return (int)Math.Truncate(Convert.ToDecimal(value,CultureInfo.InvariantCulture));
                     if (type == typeof(long))
@@ -1607,12 +1626,6 @@ namespace RS.SimpleJsonUnity
                 }
                 else
                 {
-                    if (type.IsEnum)
-                        return Enum.ToObject(type,
-                            Convert.ChangeType(value,
-                                Enum.GetUnderlyingType(type),
-                                CultureInfo.InvariantCulture));
-
                     if (type == typeof(int))
                         return Convert.ToInt32(value,CultureInfo.InvariantCulture);
                     if (type == typeof(long))
@@ -1863,7 +1876,7 @@ namespace RS.SimpleJsonUnity
 #endif
    class JsonObject :
 #if SIMPLE_JSON_DYNAMIC
- DynamicObject,
+ //DynamicObject,
 #endif
  IDictionary<string,object>
     {
@@ -2089,140 +2102,140 @@ namespace RS.SimpleJsonUnity
         }
 
 #if SIMPLE_JSON_DYNAMIC
-        /// <summary>
-        /// Provides implementation for type conversion operations. Classes derived from the <see cref="T:System.Dynamic.DynamicObject"/> class can override this method to specify dynamic behavior for operations that convert an object from one type to another.
-        /// </summary>
-        /// <param name="binder">Provides information about the conversion operation. The binder.Type property provides the type to which the object must be converted. For example, for the statement (String)sampleObject in C# (CType(sampleObject, Type) in Visual Basic), where sampleObject is an instance of the class derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, binder.Type returns the <see cref="T:System.String"/> type. The binder.Explicit property provides information about the kind of conversion that occurs. It returns true for explicit conversion and false for implicit conversion.</param>
-        /// <param name="result">The result of the type conversion operation.</param>
-        /// <returns>
-        /// Always returns true.
-        /// </returns>
-        public override bool TryConvert(ConvertBinder binder, out object result)
-        {
-            // <pex>
-            if (binder == null)
-                throw new ArgumentNullException("binder");
-            // </pex>
-            Type targetType = binder.Type;
+        ///// <summary>
+        ///// Provides implementation for type conversion operations. Classes derived from the <see cref="T:System.Dynamic.DynamicObject"/> class can override this method to specify dynamic behavior for operations that convert an object from one type to another.
+        ///// </summary>
+        ///// <param name="binder">Provides information about the conversion operation. The binder.Type property provides the type to which the object must be converted. For example, for the statement (String)sampleObject in C# (CType(sampleObject, Type) in Visual Basic), where sampleObject is an instance of the class derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, binder.Type returns the <see cref="T:System.String"/> type. The binder.Explicit property provides information about the kind of conversion that occurs. It returns true for explicit conversion and false for implicit conversion.</param>
+        ///// <param name="result">The result of the type conversion operation.</param>
+        ///// <returns>
+        ///// Always returns true.
+        ///// </returns>
+        //public override bool TryConvert(ConvertBinder binder, out object result)
+        //{
+        //    // <pex>
+        //    if (binder == null)
+        //        throw new ArgumentNullException("binder");
+        //    // </pex>
+        //    Type targetType = binder.Type;
 
-            if ((targetType == typeof(IEnumerable)) ||
-                (targetType == typeof(IEnumerable<KeyValuePair<string, object>>)) ||
-                (targetType == typeof(IDictionary<string, object>)) ||
-                (targetType == typeof(IDictionary)))
-            {
-                result = this;
-                return true;
-            }
+        //    if ((targetType == typeof(IEnumerable)) ||
+        //        (targetType == typeof(IEnumerable<KeyValuePair<string, object>>)) ||
+        //        (targetType == typeof(IDictionary<string, object>)) ||
+        //        (targetType == typeof(IDictionary)))
+        //    {
+        //        result = this;
+        //        return true;
+        //    }
 
-            return base.TryConvert(binder, out result);
-        }
+        //    return base.TryConvert(binder, out result);
+        //}
 
-        /// <summary>
-        /// Provides the implementation for operations that delete an object member. This method is not intended for use in C# or Visual Basic.
-        /// </summary>
-        /// <param name="binder">Provides information about the deletion.</param>
-        /// <returns>
-        /// Always returns true.
-        /// </returns>
-        public override bool TryDeleteMember(DeleteMemberBinder binder)
-        {
-            // <pex>
-            if (binder == null)
-                throw new ArgumentNullException("binder");
-            // </pex>
-            return _members.Remove(binder.Name);
-        }
+        ///// <summary>
+        ///// Provides the implementation for operations that delete an object member. This method is not intended for use in C# or Visual Basic.
+        ///// </summary>
+        ///// <param name="binder">Provides information about the deletion.</param>
+        ///// <returns>
+        ///// Always returns true.
+        ///// </returns>
+        //public override bool TryDeleteMember(DeleteMemberBinder binder)
+        //{
+        //    // <pex>
+        //    if (binder == null)
+        //        throw new ArgumentNullException("binder");
+        //    // </pex>
+        //    return _members.Remove(binder.Name);
+        //}
 
-        /// <summary>
-        /// Provides the implementation for operations that get a value by index. Classes derived from the <see cref="T:System.Dynamic.DynamicObject"/> class can override this method to specify dynamic behavior for indexing operations.
-        /// </summary>
-        /// <param name="binder">Provides information about the operation.</param>
-        /// <param name="indexes">The indexes that are used in the operation. For example, for the sampleObject[3] operation in C# (sampleObject(3) in Visual Basic), where sampleObject is derived from the DynamicObject class, <paramref name="indexes"/> is equal to 3.</param>
-        /// <param name="result">The result of the index operation.</param>
-        /// <returns>
-        /// Always returns true.
-        /// </returns>
-        public override bool TryGetIndex(GetIndexBinder binder, object[] indexes, out object result)
-        {
-            if (indexes == null) throw new ArgumentNullException("indexes");
-            if (indexes.Length == 1)
-            {
-                result = ((IDictionary<string, object>)this)[(string)indexes[0]];
-                return true;
-            }
-            result = null;
-            return true;
-        }
+        ///// <summary>
+        ///// Provides the implementation for operations that get a value by index. Classes derived from the <see cref="T:System.Dynamic.DynamicObject"/> class can override this method to specify dynamic behavior for indexing operations.
+        ///// </summary>
+        ///// <param name="binder">Provides information about the operation.</param>
+        ///// <param name="indexes">The indexes that are used in the operation. For example, for the sampleObject[3] operation in C# (sampleObject(3) in Visual Basic), where sampleObject is derived from the DynamicObject class, <paramref name="indexes"/> is equal to 3.</param>
+        ///// <param name="result">The result of the index operation.</param>
+        ///// <returns>
+        ///// Always returns true.
+        ///// </returns>
+        //public override bool TryGetIndex(GetIndexBinder binder, object[] indexes, out object result)
+        //{
+        //    if (indexes == null) throw new ArgumentNullException("indexes");
+        //    if (indexes.Length == 1)
+        //    {
+        //        result = ((IDictionary<string, object>)this)[(string)indexes[0]];
+        //        return true;
+        //    }
+        //    result = null;
+        //    return true;
+        //}
 
-        /// <summary>
-        /// Provides the implementation for operations that get member values. Classes derived from the <see cref="T:System.Dynamic.DynamicObject"/> class can override this method to specify dynamic behavior for operations such as getting a value for a property.
-        /// </summary>
-        /// <param name="binder">Provides information about the object that called the dynamic operation. The binder.Name property provides the name of the member on which the dynamic operation is performed. For example, for the Console.WriteLine(sampleObject.SampleProperty) statement, where sampleObject is an instance of the class derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, binder.Name returns "SampleProperty". The binder.IgnoreCase property specifies whether the member name is case-sensitive.</param>
-        /// <param name="result">The result of the get operation. For example, if the method is called for a property, you can assign the property value to <paramref name="result"/>.</param>
-        /// <returns>
-        /// Always returns true.
-        /// </returns>
-        public override bool TryGetMember(GetMemberBinder binder, out object result)
-        {
-            object value;
-            if (_members.TryGetValue(binder.Name, out value))
-            {
-                result = value;
-                return true;
-            }
-            result = null;
-            return true;
-        }
+        ///// <summary>
+        ///// Provides the implementation for operations that get member values. Classes derived from the <see cref="T:System.Dynamic.DynamicObject"/> class can override this method to specify dynamic behavior for operations such as getting a value for a property.
+        ///// </summary>
+        ///// <param name="binder">Provides information about the object that called the dynamic operation. The binder.Name property provides the name of the member on which the dynamic operation is performed. For example, for the Console.WriteLine(sampleObject.SampleProperty) statement, where sampleObject is an instance of the class derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, binder.Name returns "SampleProperty". The binder.IgnoreCase property specifies whether the member name is case-sensitive.</param>
+        ///// <param name="result">The result of the get operation. For example, if the method is called for a property, you can assign the property value to <paramref name="result"/>.</param>
+        ///// <returns>
+        ///// Always returns true.
+        ///// </returns>
+        //public override bool TryGetMember(GetMemberBinder binder, out object result)
+        //{
+        //    object value;
+        //    if (_members.TryGetValue(binder.Name, out value))
+        //    {
+        //        result = value;
+        //        return true;
+        //    }
+        //    result = null;
+        //    return true;
+        //}
 
-        /// <summary>
-        /// Provides the implementation for operations that set a value by index. Classes derived from the <see cref="T:System.Dynamic.DynamicObject"/> class can override this method to specify dynamic behavior for operations that access objects by a specified index.
-        /// </summary>
-        /// <param name="binder">Provides information about the operation.</param>
-        /// <param name="indexes">The indexes that are used in the operation. For example, for the sampleObject[3] = 10 operation in C# (sampleObject(3) = 10 in Visual Basic), where sampleObject is derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, <paramref name="indexes"/> is equal to 3.</param>
-        /// <param name="value">The value to set to the object that has the specified index. For example, for the sampleObject[3] = 10 operation in C# (sampleObject(3) = 10 in Visual Basic), where sampleObject is derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, <paramref name="value"/> is equal to 10.</param>
-        /// <returns>
-        /// true if the operation is successful; otherwise, false. If this method returns false, the run-time binder of the language determines the behavior. (In most cases, a language-specific run-time exception is thrown.
-        /// </returns>
-        public override bool TrySetIndex(SetIndexBinder binder, object[] indexes, object value)
-        {
-            if (indexes == null) throw new ArgumentNullException("indexes");
-            if (indexes.Length == 1)
-            {
-                ((IDictionary<string, object>)this)[(string)indexes[0]] = value;
-                return true;
-            }
-            return base.TrySetIndex(binder, indexes, value);
-        }
+        ///// <summary>
+        ///// Provides the implementation for operations that set a value by index. Classes derived from the <see cref="T:System.Dynamic.DynamicObject"/> class can override this method to specify dynamic behavior for operations that access objects by a specified index.
+        ///// </summary>
+        ///// <param name="binder">Provides information about the operation.</param>
+        ///// <param name="indexes">The indexes that are used in the operation. For example, for the sampleObject[3] = 10 operation in C# (sampleObject(3) = 10 in Visual Basic), where sampleObject is derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, <paramref name="indexes"/> is equal to 3.</param>
+        ///// <param name="value">The value to set to the object that has the specified index. For example, for the sampleObject[3] = 10 operation in C# (sampleObject(3) = 10 in Visual Basic), where sampleObject is derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, <paramref name="value"/> is equal to 10.</param>
+        ///// <returns>
+        ///// true if the operation is successful; otherwise, false. If this method returns false, the run-time binder of the language determines the behavior. (In most cases, a language-specific run-time exception is thrown.
+        ///// </returns>
+        //public override bool TrySetIndex(SetIndexBinder binder, object[] indexes, object value)
+        //{
+        //    if (indexes == null) throw new ArgumentNullException("indexes");
+        //    if (indexes.Length == 1)
+        //    {
+        //        ((IDictionary<string, object>)this)[(string)indexes[0]] = value;
+        //        return true;
+        //    }
+        //    return base.TrySetIndex(binder, indexes, value);
+        //}
 
-        /// <summary>
-        /// Provides the implementation for operations that set member values. Classes derived from the <see cref="T:System.Dynamic.DynamicObject"/> class can override this method to specify dynamic behavior for operations such as setting a value for a property.
-        /// </summary>
-        /// <param name="binder">Provides information about the object that called the dynamic operation. The binder.Name property provides the name of the member to which the value is being assigned. For example, for the statement sampleObject.SampleProperty = "Test", where sampleObject is an instance of the class derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, binder.Name returns "SampleProperty". The binder.IgnoreCase property specifies whether the member name is case-sensitive.</param>
-        /// <param name="value">The value to set to the member. For example, for sampleObject.SampleProperty = "Test", where sampleObject is an instance of the class derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, the <paramref name="value"/> is "Test".</param>
-        /// <returns>
-        /// true if the operation is successful; otherwise, false. If this method returns false, the run-time binder of the language determines the behavior. (In most cases, a language-specific run-time exception is thrown.)
-        /// </returns>
-        public override bool TrySetMember(SetMemberBinder binder, object value)
-        {
-            // <pex>
-            if (binder == null)
-                throw new ArgumentNullException("binder");
-            // </pex>
-            _members[binder.Name] = value;
-            return true;
-        }
+        ///// <summary>
+        ///// Provides the implementation for operations that set member values. Classes derived from the <see cref="T:System.Dynamic.DynamicObject"/> class can override this method to specify dynamic behavior for operations such as setting a value for a property.
+        ///// </summary>
+        ///// <param name="binder">Provides information about the object that called the dynamic operation. The binder.Name property provides the name of the member to which the value is being assigned. For example, for the statement sampleObject.SampleProperty = "Test", where sampleObject is an instance of the class derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, binder.Name returns "SampleProperty". The binder.IgnoreCase property specifies whether the member name is case-sensitive.</param>
+        ///// <param name="value">The value to set to the member. For example, for sampleObject.SampleProperty = "Test", where sampleObject is an instance of the class derived from the <see cref="T:System.Dynamic.DynamicObject"/> class, the <paramref name="value"/> is "Test".</param>
+        ///// <returns>
+        ///// true if the operation is successful; otherwise, false. If this method returns false, the run-time binder of the language determines the behavior. (In most cases, a language-specific run-time exception is thrown.)
+        ///// </returns>
+        //public override bool TrySetMember(SetMemberBinder binder, object value)
+        //{
+        //    // <pex>
+        //    if (binder == null)
+        //        throw new ArgumentNullException("binder");
+        //    // </pex>
+        //    _members[binder.Name] = value;
+        //    return true;
+        //}
 
-        /// <summary>
-        /// Returns the enumeration of all dynamic member names.
-        /// </summary>
-        /// <returns>
-        /// A sequence that contains dynamic member names.
-        /// </returns>
-        public override IEnumerable<string> GetDynamicMemberNames()
-        {
-            foreach (var key in Keys)
-                yield return key;
-        }
+        ///// <summary>
+        ///// Returns the enumeration of all dynamic member names.
+        ///// </summary>
+        ///// <returns>
+        ///// A sequence that contains dynamic member names.
+        ///// </returns>
+        //public override IEnumerable<string> GetDynamicMemberNames()
+        //{
+        //    foreach (var key in Keys)
+        //        yield return key;
+        //}
 #endif
     }
     // ──────────────────────────────────────────────────────────────
@@ -2860,43 +2873,116 @@ namespace RS.SimpleJsonUnity
 
         /// <summary>
         /// 初始化常用的AOT类型注册。
+        /// 默认支持全面的基础类型，包括数值类型、字符串、日期时间、GUID、Uri等。
         /// </summary>
         public static void InitializeCommonAotTypes()
         {
-            // Dictionary<string, T>
+            // ──────────────────────────────────────────────────────────────
+            // Dictionary<string, T> - string 键的字典
+            // ──────────────────────────────────────────────────────────────
             RegisterAotType(typeof(Dictionary<string,object>),() => new Dictionary<string,object>());
             RegisterAotType(typeof(Dictionary<string,string>),() => new Dictionary<string,string>());
+            
+            // 有符号整数
             RegisterAotType(typeof(Dictionary<string,int>),() => new Dictionary<string,int>());
             RegisterAotType(typeof(Dictionary<string,long>),() => new Dictionary<string,long>());
-            RegisterAotType(typeof(Dictionary<string,bool>),() => new Dictionary<string,bool>());
-            RegisterAotType(typeof(Dictionary<string,double>),() => new Dictionary<string,double>());
-            RegisterAotType(typeof(Dictionary<string,float>),() => new Dictionary<string,float>());
-            RegisterAotType(typeof(Dictionary<string,decimal>),() => new Dictionary<string,decimal>());
-            RegisterAotType(typeof(Dictionary<string,DateTime>),() => new Dictionary<string,DateTime>());
-            RegisterAotType(typeof(Dictionary<string,Guid>),() => new Dictionary<string,Guid>());
-            RegisterAotType(typeof(Dictionary<string,byte>),() => new Dictionary<string,byte>());
             RegisterAotType(typeof(Dictionary<string,short>),() => new Dictionary<string,short>());
+            RegisterAotType(typeof(Dictionary<string,sbyte>),() => new Dictionary<string,sbyte>());
+            
+            // 无符号整数
+            RegisterAotType(typeof(Dictionary<string,uint>),() => new Dictionary<string,uint>());
+            RegisterAotType(typeof(Dictionary<string,ulong>),() => new Dictionary<string,ulong>());
+            RegisterAotType(typeof(Dictionary<string,ushort>),() => new Dictionary<string,ushort>());
+            RegisterAotType(typeof(Dictionary<string,byte>),() => new Dictionary<string,byte>());
+            
+            // 浮点类型
+            RegisterAotType(typeof(Dictionary<string,float>),() => new Dictionary<string,float>());
+            RegisterAotType(typeof(Dictionary<string,double>),() => new Dictionary<string,double>());
+            RegisterAotType(typeof(Dictionary<string,decimal>),() => new Dictionary<string,decimal>());
+            
+            // 其他基础类型
+            RegisterAotType(typeof(Dictionary<string,bool>),() => new Dictionary<string,bool>());
+            RegisterAotType(typeof(Dictionary<string,char>),() => new Dictionary<string,char>());
+            
+            // 日期时间类型
+            RegisterAotType(typeof(Dictionary<string,DateTime>),() => new Dictionary<string,DateTime>());
+            RegisterAotType(typeof(Dictionary<string,DateTimeOffset>),() => new Dictionary<string,DateTimeOffset>());
+            RegisterAotType(typeof(Dictionary<string,TimeSpan>),() => new Dictionary<string,TimeSpan>());
+            
+            // 特殊类型
+            RegisterAotType(typeof(Dictionary<string,Guid>),() => new Dictionary<string,Guid>());
+            RegisterAotType(typeof(Dictionary<string,Uri>),() => new Dictionary<string,Uri>());
+            RegisterAotType(typeof(Dictionary<string,Version>),() => new Dictionary<string,Version>());
 
-            // List<T>
+            // ──────────────────────────────────────────────────────────────
+            // List<T> - 列表
+            // ──────────────────────────────────────────────────────────────
             RegisterAotType(typeof(List<object>),() => new List<object>());
             RegisterAotType(typeof(List<string>),() => new List<string>());
+            
+            // 有符号整数
             RegisterAotType(typeof(List<int>),() => new List<int>());
             RegisterAotType(typeof(List<long>),() => new List<long>());
-            RegisterAotType(typeof(List<bool>),() => new List<bool>());
-            RegisterAotType(typeof(List<double>),() => new List<double>());
-            RegisterAotType(typeof(List<float>),() => new List<float>());
-            RegisterAotType(typeof(List<decimal>),() => new List<decimal>());
-            RegisterAotType(typeof(List<DateTime>),() => new List<DateTime>());
-            RegisterAotType(typeof(List<Guid>),() => new List<Guid>());
-            RegisterAotType(typeof(List<byte>),() => new List<byte>());
             RegisterAotType(typeof(List<short>),() => new List<short>());
+            RegisterAotType(typeof(List<sbyte>),() => new List<sbyte>());
+            
+            // 无符号整数
+            RegisterAotType(typeof(List<uint>),() => new List<uint>());
+            RegisterAotType(typeof(List<ulong>),() => new List<ulong>());
+            RegisterAotType(typeof(List<ushort>),() => new List<ushort>());
+            RegisterAotType(typeof(List<byte>),() => new List<byte>());
+            
+            // 浮点类型
+            RegisterAotType(typeof(List<float>),() => new List<float>());
+            RegisterAotType(typeof(List<double>),() => new List<double>());
+            RegisterAotType(typeof(List<decimal>),() => new List<decimal>());
+            
+            // 其他基础类型
+            RegisterAotType(typeof(List<bool>),() => new List<bool>());
+            RegisterAotType(typeof(List<char>),() => new List<char>());
+            
+            // 日期时间类型
+            RegisterAotType(typeof(List<DateTime>),() => new List<DateTime>());
+            RegisterAotType(typeof(List<DateTimeOffset>),() => new List<DateTimeOffset>());
+            RegisterAotType(typeof(List<TimeSpan>),() => new List<TimeSpan>());
+            
+            // 特殊类型
+            RegisterAotType(typeof(List<Guid>),() => new List<Guid>());
+            RegisterAotType(typeof(List<Uri>),() => new List<Uri>());
+            RegisterAotType(typeof(List<Version>),() => new List<Version>());
 
-            // 常用嵌套泛型集合
+            // ──────────────────────────────────────────────────────────────
+            // Dictionary<K, V> - 非 string 键的字典
+            // ──────────────────────────────────────────────────────────────
+            RegisterAotType(typeof(Dictionary<int,string>),() => new Dictionary<int,string>());
+            RegisterAotType(typeof(Dictionary<int,int>),() => new Dictionary<int,int>());
+            RegisterAotType(typeof(Dictionary<int,object>),() => new Dictionary<int,object>());
+            RegisterAotType(typeof(Dictionary<long,string>),() => new Dictionary<long,string>());
+            RegisterAotType(typeof(Dictionary<Guid,string>),() => new Dictionary<Guid,string>());
+            RegisterAotType(typeof(Dictionary<Guid,object>),() => new Dictionary<Guid,object>());
+
+            // ──────────────────────────────────────────────────────────────
+            // 嵌套泛型集合
+            // ──────────────────────────────────────────────────────────────
+            // List<List<T>>
             RegisterAotType(typeof(List<List<string>>),() => new List<List<string>>());
             RegisterAotType(typeof(List<List<int>>),() => new List<List<int>>());
+            RegisterAotType(typeof(List<List<object>>),() => new List<List<object>>());
+            
+            // Dictionary<string, List<T>>
             RegisterAotType(typeof(Dictionary<string,List<string>>),() => new Dictionary<string,List<string>>());
             RegisterAotType(typeof(Dictionary<string,List<int>>),() => new Dictionary<string,List<int>>());
+            RegisterAotType(typeof(Dictionary<string,List<object>>),() => new Dictionary<string,List<object>>());
+            
+            // Dictionary<string, Dictionary<K, V>>
             RegisterAotType(typeof(Dictionary<string,Dictionary<string,string>>),() => new Dictionary<string,Dictionary<string,string>>());
+            RegisterAotType(typeof(Dictionary<string,Dictionary<string,int>>),() => new Dictionary<string,Dictionary<string,int>>());
+            RegisterAotType(typeof(Dictionary<string,Dictionary<string,object>>),() => new Dictionary<string,Dictionary<string,object>>());
+            
+            // List<Dictionary<string, T>>
+            RegisterAotType(typeof(List<Dictionary<string,string>>),() => new List<Dictionary<string,string>>());
+            RegisterAotType(typeof(List<Dictionary<string,int>>),() => new List<Dictionary<string,int>>());
+            RegisterAotType(typeof(List<Dictionary<string,object>>),() => new List<Dictionary<string,object>>());
         }
 
         /// <summary>
@@ -2922,7 +3008,9 @@ namespace RS.SimpleJsonUnity
         internal static IList SafeCreateList(Type elementType)
         {
             Type fallbackType;
-            try { fallbackType = typeof(List<>).MakeGenericType(elementType); }
+            try {
+                fallbackType = typeof(List<>).MakeGenericType(elementType); 
+            }
             catch (ArgumentException) { return null; }
 
             Func<object> factory = GetRegisteredAotFactory(fallbackType);
@@ -2951,6 +3039,54 @@ namespace RS.SimpleJsonUnity
 
             try { return (IDictionary)Activator.CreateInstance(dictType); }
             catch { return null; }
+        }
+
+        /// <summary>
+        /// AOT 安全的枚举值转换。直接处理各种数值类型，避免 Convert.ChangeType 在 AOT 环境下失败。
+        /// </summary>
+        /// <param name="value">数值（long/int/double 等）</param>
+        /// <param name="enumType">目标枚举类型</param>
+        /// <returns>枚举值</returns>
+        internal static object SafeEnumConversion(object value,Type enumType)
+        {
+            if (value == null || !enumType.IsEnum) return value;
+
+            //return Enum.ToObject(enumType,
+            //    Convert.ChangeType(
+            //        Math.Truncate(Convert.ToDecimal(value,CultureInfo.InvariantCulture)),
+            //        Enum.GetUnderlyingType(enumType),
+            //        CultureInfo.InvariantCulture));
+
+            Type underlyingType = Enum.GetUnderlyingType(enumType);
+            long longVal;
+
+            if (value is long l) longVal = l;
+            else if (value is int i) longVal = i;
+            else if (value is short s) longVal = s;
+            else if (value is byte b) longVal = b;
+            else if (value is sbyte sb) longVal = sb;
+            else if (value is ulong ul) return Enum.ToObject(enumType,ul);
+            else if (value is uint ui) return Enum.ToObject(enumType,ui);
+            else if (value is ushort us) return Enum.ToObject(enumType,us);
+            else if (value is double d) longVal = (long)Math.Truncate(d);
+            else if (value is float f) longVal = (long)Math.Truncate(f);
+            else if (value is decimal dec) longVal = (long)Math.Truncate(dec);
+            else
+            {
+                try { longVal = Convert.ToInt64(value,CultureInfo.InvariantCulture); }
+                catch { return Enum.ToObject(enumType,value); }
+            }
+
+            if (underlyingType == typeof(int)) return Enum.ToObject(enumType,(int)longVal);
+            if (underlyingType == typeof(long)) return Enum.ToObject(enumType,longVal);
+            if (underlyingType == typeof(short)) return Enum.ToObject(enumType,(short)longVal);
+            if (underlyingType == typeof(byte)) return Enum.ToObject(enumType,(byte)longVal);
+            if (underlyingType == typeof(sbyte)) return Enum.ToObject(enumType,(sbyte)longVal);
+            if (underlyingType == typeof(uint)) return Enum.ToObject(enumType,(uint)longVal);
+            if (underlyingType == typeof(ulong)) return Enum.ToObject(enumType,(ulong)longVal);
+            if (underlyingType == typeof(ushort)) return Enum.ToObject(enumType,(ushort)longVal);
+
+            return Enum.ToObject(enumType,longVal);
         }
 
         /// <summary>
@@ -3543,27 +3679,27 @@ namespace RS.SimpleJsonUnity
     {
         public DataContractSerializationStrategy() : base() { }
 
-        public DataContractSerializationStrategy(bool ignoreLowerCase, bool useJsonAliasSerialization)
-            : base(ignoreLowerCase, useJsonAliasSerialization) { }
+        public DataContractSerializationStrategy(bool ignoreLowerCase,bool useJsonAliasSerialization)
+            : base(ignoreLowerCase,useJsonAliasSerialization) { }
 
         /// <summary>
         /// 检查类型是否标记了 DataContract 特性
         /// </summary>
         private static bool HasDataContract(Type type)
         {
-            return type != null && type.IsDefined(typeof(DataContractAttribute), true);
+            return type != null && type.IsDefined(typeof(DataContractAttribute),true);
         }
 
         /// <summary>
         /// 获取成员的 JSON 键名（考虑 DataMember.Name）
         /// </summary>
-        private string GetJsonKey(MemberInfo member, bool hasDataContract)
+        private string GetJsonKey(MemberInfo member,bool hasDataContract)
         {
             string jsonKey = member.Name;
 
             if (hasDataContract)
             {
-                object[] attrs = member.GetCustomAttributes(typeof(DataMemberAttribute), true);
+                object[] attrs = member.GetCustomAttributes(typeof(DataMemberAttribute),true);
                 DataMemberAttribute dataMember = (attrs.Length > 0) ? (DataMemberAttribute)attrs[0] : null;
 
                 if (dataMember != null && !string.IsNullOrEmpty(dataMember.Name))
@@ -3578,20 +3714,20 @@ namespace RS.SimpleJsonUnity
         /// <summary>
         /// 检查成员是否应该被序列化
         /// </summary>
-        private bool ShouldSerialize(MemberInfo member, bool hasDataContract)
+        private bool ShouldSerialize(MemberInfo member,bool hasDataContract)
         {
             // IgnoreDataMember 优先级最高
-            if (member.IsDefined(typeof(IgnoreDataMemberAttribute), true))
+            if (member.IsDefined(typeof(IgnoreDataMemberAttribute),true))
                 return false;
 
             // JsonIgnore 也要尊重
-            if (member.IsDefined(typeof(JsonIgnoreAttribute), true))
+            if (member.IsDefined(typeof(JsonIgnoreAttribute),true))
                 return false;
 
             if (hasDataContract)
             {
                 // 有 DataContract 时，必须有 DataMember 才能序列化
-                return member.IsDefined(typeof(DataMemberAttribute), true);
+                return member.IsDefined(typeof(DataMemberAttribute),true);
             }
 
             // 没有 DataContract，使用默认行为（public 或 JsonInclude）
@@ -3601,9 +3737,9 @@ namespace RS.SimpleJsonUnity
         /// <summary>
         /// 检查成员是否应该被反序列化
         /// </summary>
-        private bool ShouldDeserialize(MemberInfo member, bool hasDataContract)
+        private bool ShouldDeserialize(MemberInfo member,bool hasDataContract)
         {
-            return ShouldSerialize(member, hasDataContract);
+            return ShouldSerialize(member,hasDataContract);
         }
 
         private string ToCamelCase(string propertyName)
@@ -3621,16 +3757,16 @@ namespace RS.SimpleJsonUnity
             if (i == 1)
                 return char.ToLowerInvariant(propertyName[0]) + propertyName.Substring(1);
 
-            return propertyName.Substring(0, i - 1).ToLowerInvariant() +
+            return propertyName.Substring(0,i - 1).ToLowerInvariant() +
                    propertyName.Substring(i - 1);
         }
 
         // ── 重写 BuildGetters 以支持 DataContract ───────────────────
 
-        private static IDictionary<string, Func<object, object>>
-            BuildGettersWithDataContract(Type type, bool ignoreLowerCase,bool useJsonAlias)
+        private static IDictionary<string,Func<object,object>>
+            BuildGettersWithDataContract(Type type,bool ignoreLowerCase,bool useJsonAlias)
         {
-            var getters = new Dictionary<string, Func<object, object>>();
+            var getters = new Dictionary<string,Func<object,object>>();
             var seen = new HashSet<string>();
             bool hasDataContract = HasDataContract(type);
 
@@ -3641,11 +3777,11 @@ namespace RS.SimpleJsonUnity
                 if (!p.CanRead) continue;
                 if (seen.Contains(p.Name)) continue;
 
-                if (!ShouldSerializeMember(p, hasDataContract)) continue;
+                if (!ShouldSerializeMember(p,hasDataContract)) continue;
 
                 seen.Add(p.Name);
                 string jsonKey;
-                
+
                 if (useJsonAlias)
                 {
                     string alias = ReflectionUtils.GetFirstAlias(ReflectionUtils.GetAttribute<JsonAliasAttribute>(p));
@@ -3657,16 +3793,16 @@ namespace RS.SimpleJsonUnity
                     }
                     else
                     {
-                        jsonKey = GetJsonKeyName(p, hasDataContract, ignoreLowerCase);
+                        jsonKey = GetJsonKeyName(p,hasDataContract,ignoreLowerCase);
                     }
                 }
                 else
                 {
-                    jsonKey = GetJsonKeyName(p, hasDataContract, ignoreLowerCase);
+                    jsonKey = GetJsonKeyName(p,hasDataContract,ignoreLowerCase);
                 }
-                
+
                 PropertyInfo captured = p;
-                getters[jsonKey] = obj => captured.GetValue(obj, null);
+                getters[jsonKey] = obj => captured.GetValue(obj,null);
             }
 
             // public 字段
@@ -3674,11 +3810,11 @@ namespace RS.SimpleJsonUnity
             {
                 if (seen.Contains(f.Name)) continue;
 
-                if (!ShouldSerializeMember(f, hasDataContract)) continue;
+                if (!ShouldSerializeMember(f,hasDataContract)) continue;
 
                 seen.Add(f.Name);
                 string jsonKey;
-                
+
                 if (useJsonAlias)
                 {
                     string alias = ReflectionUtils.GetFirstAlias(ReflectionUtils.GetAttribute<JsonAliasAttribute>(f));
@@ -3690,14 +3826,14 @@ namespace RS.SimpleJsonUnity
                     }
                     else
                     {
-                        jsonKey = GetJsonKeyName(f, hasDataContract, ignoreLowerCase);
+                        jsonKey = GetJsonKeyName(f,hasDataContract,ignoreLowerCase);
                     }
                 }
                 else
                 {
-                    jsonKey = GetJsonKeyName(f, hasDataContract, ignoreLowerCase);
+                    jsonKey = GetJsonKeyName(f,hasDataContract,ignoreLowerCase);
                 }
-                
+
                 FieldInfo captured = f;
                 getters[jsonKey] = obj => captured.GetValue(obj);
             }
@@ -3710,15 +3846,15 @@ namespace RS.SimpleJsonUnity
                 if (seen.Contains(p.Name)) continue;
 
                 // DataContract 模式下，DataMember 优先
-                bool hasDataMember = p.IsDefined(typeof(DataMemberAttribute), true);
-                bool hasJsonInclude = p.IsDefined(typeof(JsonIncludeAttribute), true);
+                bool hasDataMember = p.IsDefined(typeof(DataMemberAttribute),true);
+                bool hasJsonInclude = p.IsDefined(typeof(JsonIncludeAttribute),true);
                 if (!hasDataMember && !hasJsonInclude) continue;
-                if (p.IsDefined(typeof(IgnoreDataMemberAttribute), true)) continue;
-                if (p.IsDefined(typeof(JsonIgnoreAttribute), true)) continue;
+                if (p.IsDefined(typeof(IgnoreDataMemberAttribute),true)) continue;
+                if (p.IsDefined(typeof(JsonIgnoreAttribute),true)) continue;
 
                 seen.Add(p.Name);
                 string jsonKey;
-                
+
                 if (useJsonAlias)
                 {
                     string alias = ReflectionUtils.GetFirstAlias(ReflectionUtils.GetAttribute<JsonAliasAttribute>(p));
@@ -3730,31 +3866,31 @@ namespace RS.SimpleJsonUnity
                     }
                     else
                     {
-                        jsonKey = GetJsonKeyName(p, hasDataContract, ignoreLowerCase);
+                        jsonKey = GetJsonKeyName(p,hasDataContract,ignoreLowerCase);
                     }
                 }
                 else
                 {
-                    jsonKey = GetJsonKeyName(p, hasDataContract, ignoreLowerCase);
+                    jsonKey = GetJsonKeyName(p,hasDataContract,ignoreLowerCase);
                 }
-                
+
                 PropertyInfo captured = p;
-                getters[jsonKey] = obj => captured.GetValue(obj, null);
+                getters[jsonKey] = obj => captured.GetValue(obj,null);
             }
 
             foreach (FieldInfo f in ReflectionUtils.GetFields(type,ReflectionUtils.NONPUBLIC_INSTANCE))
             {
                 if (seen.Contains(f.Name)) continue;
 
-                bool hasDataMember = f.IsDefined(typeof(DataMemberAttribute), true);
-                bool hasJsonInclude = f.IsDefined(typeof(JsonIncludeAttribute), true);
+                bool hasDataMember = f.IsDefined(typeof(DataMemberAttribute),true);
+                bool hasJsonInclude = f.IsDefined(typeof(JsonIncludeAttribute),true);
                 if (!hasDataMember && !hasJsonInclude) continue;
-                if (f.IsDefined(typeof(IgnoreDataMemberAttribute), true)) continue;
-                if (f.IsDefined(typeof(JsonIgnoreAttribute), true)) continue;
+                if (f.IsDefined(typeof(IgnoreDataMemberAttribute),true)) continue;
+                if (f.IsDefined(typeof(JsonIgnoreAttribute),true)) continue;
 
                 seen.Add(f.Name);
                 string jsonKey;
-                
+
                 if (useJsonAlias)
                 {
                     string alias = ReflectionUtils.GetFirstAlias(ReflectionUtils.GetAttribute<JsonAliasAttribute>(f));
@@ -3766,14 +3902,14 @@ namespace RS.SimpleJsonUnity
                     }
                     else
                     {
-                        jsonKey = GetJsonKeyName(f, hasDataContract, ignoreLowerCase);
+                        jsonKey = GetJsonKeyName(f,hasDataContract,ignoreLowerCase);
                     }
                 }
                 else
                 {
-                    jsonKey = GetJsonKeyName(f, hasDataContract, ignoreLowerCase);
+                    jsonKey = GetJsonKeyName(f,hasDataContract,ignoreLowerCase);
                 }
-                
+
                 FieldInfo captured = f;
                 getters[jsonKey] = obj => captured.GetValue(obj);
             }
@@ -3781,26 +3917,26 @@ namespace RS.SimpleJsonUnity
             return getters;
         }
 
-        private static bool ShouldSerializeMember(MemberInfo member, bool hasDataContract)
+        private static bool ShouldSerializeMember(MemberInfo member,bool hasDataContract)
         {
-            if (member.IsDefined(typeof(IgnoreDataMemberAttribute), true))
+            if (member.IsDefined(typeof(IgnoreDataMemberAttribute),true))
                 return false;
-            if (member.IsDefined(typeof(JsonIgnoreAttribute), true))
+            if (member.IsDefined(typeof(JsonIgnoreAttribute),true))
                 return false;
 
             if (hasDataContract)
-                return member.IsDefined(typeof(DataMemberAttribute), true);
+                return member.IsDefined(typeof(DataMemberAttribute),true);
 
             return true;
         }
 
-        private static string GetJsonKeyName(MemberInfo member, bool hasDataContract, bool ignoreLowerCase)
+        private static string GetJsonKeyName(MemberInfo member,bool hasDataContract,bool ignoreLowerCase)
         {
             string jsonKey = member.Name;
 
             if (hasDataContract)
             {
-                object[] dmAttrs = member.GetCustomAttributes(typeof(DataMemberAttribute), true);
+                object[] dmAttrs = member.GetCustomAttributes(typeof(DataMemberAttribute),true);
                 DataMemberAttribute dataMember = (dmAttrs.Length > 0) ? (DataMemberAttribute)dmAttrs[0] : null;
 
                 if (dataMember != null && !string.IsNullOrEmpty(dataMember.Name))
@@ -3827,35 +3963,35 @@ namespace RS.SimpleJsonUnity
             if (i == 1)
                 return char.ToLowerInvariant(propertyName[0]) + propertyName.Substring(1);
 
-            return propertyName.Substring(0, i - 1).ToLowerInvariant() +
+            return propertyName.Substring(0,i - 1).ToLowerInvariant() +
                    propertyName.Substring(i - 1);
         }
 
         // ── 重写 BuildSetters 以支持 DataContract ───────────────────
 
-        private static IDictionary<string, Action<object, object>>
-            BuildSettersWithDataContract(Type type, bool ignoreLowerCase)
+        private static IDictionary<string,Action<object,object>>
+            BuildSettersWithDataContract(Type type,bool ignoreLowerCase)
         {
             var setters = ignoreLowerCase
-                ? new Dictionary<string, Action<object, object>>(StringComparer.OrdinalIgnoreCase)
-                : new Dictionary<string, Action<object, object>>();
+                ? new Dictionary<string,Action<object,object>>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string,Action<object,object>>();
             var seen = new HashSet<string>();
             bool hasDataContract = HasDataContract(type);
 
-            Action<MemberInfo, Type, Action<object, object>> register =
-                (member, memberType, rawSetter) =>
+            Action<MemberInfo,Type,Action<object,object>> register =
+                (member,memberType,rawSetter) =>
                 {
-                    if (!ShouldDeserializeMember(member, hasDataContract)) return;
+                    if (!ShouldDeserializeMember(member,hasDataContract)) return;
                     if (seen.Contains(member.Name)) return;
                     seen.Add(member.Name);
 
                     Type capturedType = memberType;
                     MemberInfo capturedMember = member;
-                    Action<object, object> safeSetter = (obj, val) =>
+                    Action<object,object> safeSetter = (obj,val) =>
                     {
                         try
                         {
-                            rawSetter(obj, CoerceValueStatic(val, capturedType));
+                            rawSetter(obj,CoerceValueStatic(val,capturedType));
                         }
                         catch (Exception ex)
                         {
@@ -3868,10 +4004,10 @@ namespace RS.SimpleJsonUnity
                         }
                     };
 
-                    string jsonKey = GetJsonKeyName(member, hasDataContract, ignoreLowerCase);
+                    string jsonKey = GetJsonKeyName(member,hasDataContract,ignoreLowerCase);
 
                     // JsonAlias 支持
-                    object[] jaAttrs = member.GetCustomAttributes(typeof(JsonAliasAttribute), true);
+                    object[] jaAttrs = member.GetCustomAttributes(typeof(JsonAliasAttribute),true);
                     JsonAliasAttribute aliasAttr = (jaAttrs.Length > 0) ? jaAttrs[0] as JsonAliasAttribute : null;
                     if (aliasAttr != null)
                     {
@@ -3896,14 +4032,14 @@ namespace RS.SimpleJsonUnity
                 if (p.GetIndexParameters().Length > 0) continue;
                 if (!p.CanWrite) continue;
                 PropertyInfo captured = p;
-                register(p, p.PropertyType, (obj, val) => captured.SetValue(obj, val, null));
+                register(p,p.PropertyType,(obj,val) => captured.SetValue(obj,val,null));
             }
 
             // public 字段
             foreach (FieldInfo f in ReflectionUtils.GetFields(type,ReflectionUtils.PUBLIC_INSTANCE))
             {
                 FieldInfo captured = f;
-                register(f, f.FieldType, (obj, val) => captured.SetValue(obj, val));
+                register(f,f.FieldType,(obj,val) => captured.SetValue(obj,val));
             }
 
             // non-public：DataMember 或 JsonInclude
@@ -3912,41 +4048,41 @@ namespace RS.SimpleJsonUnity
                 if (p.GetIndexParameters().Length > 0) continue;
                 if (!p.CanWrite) continue;
 
-                bool hasDataMember = p.IsDefined(typeof(DataMemberAttribute), true);
-                bool hasJsonInclude = p.IsDefined(typeof(JsonIncludeAttribute), true);
+                bool hasDataMember = p.IsDefined(typeof(DataMemberAttribute),true);
+                bool hasJsonInclude = p.IsDefined(typeof(JsonIncludeAttribute),true);
                 if (!hasDataMember && !hasJsonInclude) continue;
 
                 PropertyInfo captured = p;
-                register(p, p.PropertyType, (obj, val) => captured.SetValue(obj, val, null));
+                register(p,p.PropertyType,(obj,val) => captured.SetValue(obj,val,null));
             }
 
             foreach (FieldInfo f in ReflectionUtils.GetFields(type,ReflectionUtils.NONPUBLIC_INSTANCE))
             {
-                bool hasDataMember = f.IsDefined(typeof(DataMemberAttribute), true);
-                bool hasJsonInclude = f.IsDefined(typeof(JsonIncludeAttribute), true);
+                bool hasDataMember = f.IsDefined(typeof(DataMemberAttribute),true);
+                bool hasJsonInclude = f.IsDefined(typeof(JsonIncludeAttribute),true);
                 if (!hasDataMember && !hasJsonInclude) continue;
 
                 FieldInfo captured = f;
-                register(f, f.FieldType, (obj, val) => captured.SetValue(obj, val));
+                register(f,f.FieldType,(obj,val) => captured.SetValue(obj,val));
             }
 
             return setters;
         }
 
-        private static bool ShouldDeserializeMember(MemberInfo member, bool hasDataContract)
+        private static bool ShouldDeserializeMember(MemberInfo member,bool hasDataContract)
         {
-            if (member.IsDefined(typeof(IgnoreDataMemberAttribute), true))
+            if (member.IsDefined(typeof(IgnoreDataMemberAttribute),true))
                 return false;
-            if (member.IsDefined(typeof(JsonIgnoreAttribute), true))
+            if (member.IsDefined(typeof(JsonIgnoreAttribute),true))
                 return false;
 
             if (hasDataContract)
-                return member.IsDefined(typeof(DataMemberAttribute), true);
+                return member.IsDefined(typeof(DataMemberAttribute),true);
 
             return true;
         }
 
-        private static object CoerceValueStatic(object val, Type targetType)
+        private static object CoerceValueStatic(object val,Type targetType)
         {
             if (val == null) return null;
             if (targetType.IsAssignableFrom(val.GetType())) return val;
@@ -3972,7 +4108,7 @@ namespace RS.SimpleJsonUnity
                     IList result;
                     if (targetType.IsArray)
                     {
-                        result = Array.CreateInstance(elementType, listVal.Count);
+                        result = Array.CreateInstance(elementType,listVal.Count);
                     }
                     else
                     {
@@ -3988,7 +4124,7 @@ namespace RS.SimpleJsonUnity
                     int idx = 0;
                     foreach (object item in listVal)
                     {
-                        object convertedItem = CoerceValueStatic(item, elementType);
+                        object convertedItem = CoerceValueStatic(item,elementType);
                         if (targetType.IsArray)
                             result[idx] = convertedItem;
                         else
@@ -4000,7 +4136,7 @@ namespace RS.SimpleJsonUnity
             }
 
             // IDictionary 类型：IDictionary<string,object> → 目标 Dictionary<K,V>
-            if (typeof(IDictionary).IsAssignableFrom(targetType) && val is IDictionary<string, object> dictVal)
+            if (typeof(IDictionary).IsAssignableFrom(targetType) && val is IDictionary<string,object> dictVal)
             {
                 if (targetType.IsGenericType)
                 {
@@ -4021,8 +4157,8 @@ namespace RS.SimpleJsonUnity
 
                         foreach (var kvp in dictVal)
                         {
-                            object dictKey = DefaultJsonSerializationStrategy.ConvertDictionaryKey(kvp.Key, keyType);
-                            object dictValue = CoerceValueStatic(kvp.Value, valueType);
+                            object dictKey = DefaultJsonSerializationStrategy.ConvertDictionaryKey(kvp.Key,keyType);
+                            object dictValue = CoerceValueStatic(kvp.Value,valueType);
                             result[dictKey] = dictValue;
                         }
                         return result;
@@ -4031,26 +4167,26 @@ namespace RS.SimpleJsonUnity
             }
 
             // POCO 类型：IDictionary<string,object> → 目标 POCO
-            IDictionary<string, object> pocoDict = val as IDictionary<string, object>;
+            IDictionary<string,object> pocoDict = val as IDictionary<string,object>;
             if (pocoDict != null
                 && targetType.IsClass
                 && targetType != typeof(string)
                 && !typeof(IDictionary).IsAssignableFrom(targetType)
                 && !typeof(IList).IsAssignableFrom(targetType))
             {
-                return SimpleJson.CurrentJsonSerializerStrategy.DeserializeObject(pocoDict, targetType);
+                return SimpleJson.CurrentJsonSerializerStrategy.DeserializeObject(pocoDict,targetType);
             }
 
-            return Convert.ChangeType(val, targetType, CultureInfo.InvariantCulture);
+            return Convert.ChangeType(val,targetType,CultureInfo.InvariantCulture);
         }
 
         // ── 重写缓存方法 ─────────────────────────────────────────────
 
-        protected override IDictionary<string, Func<object, object>> GetOrBuildGetters(Type type)
+        protected override IDictionary<string,Func<object,object>> GetOrBuildGetters(Type type)
         {
-            var cacheKey = new TypeCacheKey(type, ignoreLowerCaseForDeserialization, useJsonAliasForSerialization);
-            IDictionary<string, Func<object, object>> cached;
-            if (m_getterCache.TryGetValue(cacheKey, out cached)) return cached;
+            var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization,useJsonAliasForSerialization);
+            IDictionary<string,Func<object,object>> cached;
+            if (m_getterCache.TryGetValue(cacheKey,out cached)) return cached;
 
 #if SIMPLE_JSON_WEBGL
             IDictionary<string, Func<object, object>> built;
@@ -4068,16 +4204,16 @@ namespace RS.SimpleJsonUnity
 #else
             lock (m_getterBuildLock)
             {
-                if (m_getterCache.TryGetValue(cacheKey, out cached)) return cached;
-                IDictionary<string, Func<object, object>> built;
-                try { built = BuildGettersWithDataContract(type, ignoreLowerCaseForDeserialization, useJsonAliasForSerialization); }
+                if (m_getterCache.TryGetValue(cacheKey,out cached)) return cached;
+                IDictionary<string,Func<object,object>> built;
+                try { built = BuildGettersWithDataContract(type,ignoreLowerCaseForDeserialization,useJsonAliasForSerialization); }
                 catch (Exception ex)
                 {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
                     Guard.LogError("GetOrBuildGetters: Failed for \"" +
                         type.FullName + "\". " + ex.Message);
 #endif
-                    return new Dictionary<string, Func<object, object>>();
+                    return new Dictionary<string,Func<object,object>>();
                 }
                 m_getterCache[cacheKey] = built;
                 return built;
@@ -4085,11 +4221,11 @@ namespace RS.SimpleJsonUnity
 #endif
         }
 
-        protected override IDictionary<string, Action<object, object>> GetOrBuildSetters(Type type)
+        protected override IDictionary<string,Action<object,object>> GetOrBuildSetters(Type type)
         {
-            var cacheKey = new TypeCacheKey(type, ignoreLowerCaseForDeserialization);
-            IDictionary<string, Action<object, object>> cached;
-            if (m_setterCache.TryGetValue(cacheKey, out cached)) return cached;
+            var cacheKey = new TypeCacheKey(type,ignoreLowerCaseForDeserialization);
+            IDictionary<string,Action<object,object>> cached;
+            if (m_setterCache.TryGetValue(cacheKey,out cached)) return cached;
 
 #if SIMPLE_JSON_WEBGL
             IDictionary<string, Action<object, object>> built;
@@ -4107,16 +4243,16 @@ namespace RS.SimpleJsonUnity
 #else
             lock (m_setterBuildLock)
             {
-                if (m_setterCache.TryGetValue(cacheKey, out cached)) return cached;
-                IDictionary<string, Action<object, object>> built;
-                try { built = BuildSettersWithDataContract(type, ignoreLowerCaseForDeserialization); }
+                if (m_setterCache.TryGetValue(cacheKey,out cached)) return cached;
+                IDictionary<string,Action<object,object>> built;
+                try { built = BuildSettersWithDataContract(type,ignoreLowerCaseForDeserialization); }
                 catch (Exception ex)
                 {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
                     Guard.LogError("GetOrBuildSetters: Failed for \"" +
                         type.FullName + "\". " + ex.Message);
 #endif
-                    return new Dictionary<string, Action<object, object>>();
+                    return new Dictionary<string,Action<object,object>>();
                 }
                 m_setterCache[cacheKey] = built;
                 return built;
