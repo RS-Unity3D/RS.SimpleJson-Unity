@@ -1181,12 +1181,21 @@ namespace RS.SimpleJsonUnity
 
                 if (genericDef == typeof(IList<>) ||
                     genericDef == typeof(ICollection<>) ||
-                    genericDef == typeof(IEnumerable<>))
+                    genericDef == typeof(IEnumerable<>)
+#if SIMPLE_JSON_READONLY_COLLECTIONS
+                    || genericDef == typeof(IReadOnlyCollection<>)
+                    || genericDef == typeof(IReadOnlyList<>)
+#endif
+                    )
                 {
                     return typeof(List<>).MakeGenericType(genericArgs);
                 }
 
-                if (genericDef == typeof(IDictionary<,>))
+                if (genericDef == typeof(IDictionary<,>)
+#if SIMPLE_JSON_READONLY_COLLECTIONS
+                    || genericDef == typeof(IReadOnlyDictionary<,>)
+#endif
+                    )
                 {
                     return typeof(Dictionary<,>).MakeGenericType(genericArgs);
                 }
@@ -1195,7 +1204,7 @@ namespace RS.SimpleJsonUnity
         }
 
         /// <summary>
-        /// AOT 安全的 List 创建。优先使用已注册工厂委托，避免 MakeGenericType。
+        /// [不捕获异常]AOT 安全的 List 创建。优先使用已注册工厂委托，避免 MakeGenericType。
         /// 出现错误时抛异常。
         /// </summary>
         /// <param name="elementType">列表元素类型</param>
@@ -1213,7 +1222,7 @@ namespace RS.SimpleJsonUnity
             return (IList)ctor(0);
         }
         /// <summary>
-        /// 创建Array对象，出现错误时抛异常
+        /// [不捕获异常]创建Array对象，出现错误时抛异常
         /// </summary>
         /// <param name="arrayType"></param>
         /// <param name="elementType"></param>
@@ -1226,7 +1235,7 @@ namespace RS.SimpleJsonUnity
             return (Array)ctor(count);
         }
         /// <summary>
-        /// 创建 IDictionary 实例，出现错误时抛异常
+        ///[不捕获异常] 创建 IDictionary 实例，出现错误时抛异常
         /// </summary>
         /// <param name="keyType"></param>
         /// <param name="valueType"></param>
@@ -1245,7 +1254,7 @@ namespace RS.SimpleJsonUnity
         }
 
         /// <summary>
-        /// AOT 安全的枚举值转换。直接处理各种数值类型，避免 Convert.ChangeType 在 AOT 环境下失败。
+        /// [不捕获异常]AOT 安全的枚举值转换。直接处理各种数值类型，避免 Convert.ChangeType 在 AOT 环境下失败。
         /// </summary>
         /// <param name="value">数值（long/int/double 等）</param>
         /// <param name="enumType">目标枚举类型</param>
