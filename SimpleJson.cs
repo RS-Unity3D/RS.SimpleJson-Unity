@@ -126,7 +126,7 @@ using System.Runtime.Serialization.Formatters;
 // ReSharper disable LoopCanBeConvertedToQuery
 // ReSharper disable RedundantExplicitArrayCreation
 // ReSharper disable SuggestUseVarKeywordEvident
-namespace RS.SimpleJsonAOT//GitHub.Unity.Json
+namespace RS.SimpleJsonUnity//GitHub.Unity.Json
 {
     static class Constants {
         public static readonly string[] Iso8601Formats = {
