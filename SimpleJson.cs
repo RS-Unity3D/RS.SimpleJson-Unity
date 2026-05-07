@@ -66,26 +66,37 @@
 //NOTE:Single-threaded mode, such as WebGL, does not consider multi-threading.
 //#define SIMPLE_JSON_SINGLE_THREADED
 
-#if NET35 || NET40
-#undef SIMPLE_JSON_READONLY_COLLECTIONS
+
+#if NET20
+#undef SIMPLE_JSON_DATACONTRACT
 #endif
 
+#if NET20 || NET35 || NET40
+#undef SIMPLE_JSON_READONLY_COLLECTIONS
+#undef SIMPLE_JSON_AOT
+#endif
+//NOTE:.NET Framework not support AOT
+#if NET45 || NET46 || NET46 || NET47 || NET48
+#undef SIMPLE_JSON_AOT
+#endif
 #if NETFX_CORE
 #define SIMPLE_JSON_TYPEINFO
 #endif
-
+//
 //NOTE:Unity support
-#if UNITY_4 || UNITY_5 || UNITY_5_3_OR_NEWER || UNITY_2017_1_OR_NEWER
-#define SIMPLE_JSON_UNITY
-//unity webgl does not support multi-threading
-#if UNITY_WEBGL
-#define SIMPLE_JSON_SINGLE_THREADED
+//#define SIMPLE_JSON_UNITY
+#if UNITY_4 || UNITY_5 || UNITY_5_3_OR_NEWER || UNITY_2017_1_OR_NEWER || UNITY_2022_1_OR_NEWER
+    #define SIMPLE_JSON_UNITY
+    //unity webgl does not support multi-threading
+    #if UNITY_WEBGL
+        #define SIMPLE_JSON_SINGLE_THREADED
+    #endif
+    //unity aot compiler
+    #if ENABLE_IL2CPP
+    #define SIMPLE_JSON_AOT
+    #endif
 #endif
-//unity aot compiler
-#if ENABLE_IL2CPP
-#define SIMPLE_JSON_AOT
-#endif
-#endif
+
 #if SIMPLE_JSON_UNITY
 using UnityEngine;
 #endif
@@ -115,7 +126,7 @@ using System.Runtime.Serialization.Formatters;
 // ReSharper disable LoopCanBeConvertedToQuery
 // ReSharper disable RedundantExplicitArrayCreation
 // ReSharper disable SuggestUseVarKeywordEvident
-namespace IRobotQ.Core.SimpleJsonEx//RS.SimpleJsonAOT//GitHub.Unity.Json
+namespace RS.SimpleJsonAOT//GitHub.Unity.Json
 {
     static class Constants {
         public static readonly string[] Iso8601Formats = {
