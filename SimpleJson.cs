@@ -15,6 +15,7 @@
 // </copyright>
 // <author>andyhebear,Nathan Totten (ntotten.com), Jim Zimmerman (jimzimmerman.com) and Prabir Shrestha (prabir.me)</author>
 // <website>https://github.com/facebook-csharp-sdk/simple-json</website>
+// <website>https://github.com/RS-Unity3D/RS.SimpleJson-Unity/blob/v1.x/SimpleJson.cs</website>
 //-----------------------------------------------------------------------
 //sgd:2026.5.7 fixed clear Construct Cache and fixed time format
 //sgd:2026.2.20 support aot compiler
@@ -33,7 +34,7 @@
 //#define SIMPLE_JSON_DYNAMIC
 
 // NOTE: uncomment the following line to enable DataContract support.
-//#define SIMPLE_JSON_DATACONTRACT
+#define SIMPLE_JSON_DATACONTRACT
 
 // NOTE: uncomment the following line to enable IReadOnlyCollection<T> and IReadOnlyList<T> support.
 #define SIMPLE_JSON_READONLY_COLLECTIONS
@@ -55,7 +56,7 @@
 
 //add
 //NOTE:Ignore the case of attributes/fields
-#define SIMPLE_JSON_PropertyToLowerCase
+#define SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE
 
 //NOTE:Private fields marked with JsonInclude are serialized when onlyPublic=false
 //Private properties marked with JsonInclude are serialized when onlyPublic=false
@@ -623,7 +624,7 @@ namespace IRobotQ.Core.SimpleJsonEx//RS.SimpleJsonAOT//GitHub.Unity.Json
             EscapeTable['\r'] = 'r';
             EscapeTable['\t'] = 't';
         }
-#if SIMPLE_JSON_PropertyToLowerCase
+#if SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE
         ///// <summary>
         ///// Specify the serialization method that ignores the case of attributes/fields
         ///// </summary>
@@ -2030,12 +2031,12 @@ namespace IRobotQ.Core.SimpleJsonEx//RS.SimpleJsonAOT//GitHub.Unity.Json
         private bool toLowerCase = false;
         //private bool onlyPublic = true;
         internal DefaultJsonSerializationStrategy() :
-#if SIMPLE_JSON_PropertyToLowerCase&&SIMPLE_JSON_OnlyPublicProperty
+#if SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE&&SIMPLE_JSON_OnlyPublicProperty
             this(true,true)
-#elif SIMPLE_JSON_PropertyToLowerCase && !SIMPLE_JSON_OnlyPublicProperty
+#elif SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE && !SIMPLE_JSON_OnlyPublicProperty
             this(true,false)
 
-#elif !SIMPLE_JSON_PropertyToLowerCase && !SIMPLE_JSON_OnlyPublicProperty
+#elif !SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE && !SIMPLE_JSON_OnlyPublicProperty
             this(false,false)
 #else
             this(false,true)
@@ -2158,12 +2159,12 @@ namespace IRobotQ.Core.SimpleJsonEx//RS.SimpleJsonAOT//GitHub.Unity.Json
         //private bool onlyPublic = true;
 
         internal UnitySerializationStrategy() :
-#if SIMPLE_JSON_PropertyToLowerCase&&SIMPLE_JSON_OnlyPublicProperty
+#if SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE&&SIMPLE_JSON_OnlyPublicProperty
             this(true,true)
-#elif SIMPLE_JSON_PropertyToLowerCase && !SIMPLE_JSON_OnlyPublicProperty
+#elif SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE && !SIMPLE_JSON_OnlyPublicProperty
             this(true,false)
 
-#elif !SIMPLE_JSON_PropertyToLowerCase && !SIMPLE_JSON_OnlyPublicProperty
+#elif !SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE && !SIMPLE_JSON_OnlyPublicProperty
             this(false,false)
 #else
             this(false,true)
