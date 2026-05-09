@@ -1874,11 +1874,13 @@ namespace RS.SimpleJsonUnity//GitHub.Unity.Json
                     return (IDictionary)Activator.CreateInstance(registeredType);
                 }
                 catch {
+#if !SIMPLE_JSON_AOT
                     try {
                         return (IDictionary)FormatterServices.GetUninitializedObject(registeredType);
                     }
                     catch {
                     }
+#endif
                 }
             }
 
@@ -1887,10 +1889,13 @@ namespace RS.SimpleJsonUnity//GitHub.Unity.Json
                 return (IDictionary)Activator.CreateInstance(genericType);
             }
             catch {
+#if !SIMPLE_JSON_AOT
                 try {
                     return (IDictionary)FormatterServices.GetUninitializedObject(genericType);
                 }
-                catch {
+                catch 
+#endif
+                {
                     throw new NotSupportedException(
                         $"Dictionary<{keyType.Name}, {valueType.Name}> is not supported in AOT environment. " +
                         $"Please register this type using SimpleJson.RegisterAotType().");
@@ -1941,11 +1946,13 @@ namespace RS.SimpleJsonUnity//GitHub.Unity.Json
                     return (IList)Activator.CreateInstance(registeredType,capacity);
                 }
                 catch {
+#if !SIMPLE_JSON_AOT
                     try {
                         return (IList)FormatterServices.GetUninitializedObject(registeredType);
                     }
                     catch {
                     }
+#endif
                 }
             }
 
@@ -1954,10 +1961,13 @@ namespace RS.SimpleJsonUnity//GitHub.Unity.Json
                 return (IList)Activator.CreateInstance(genericType,capacity);
             }
             catch {
+#if !SIMPLE_JSON_AOT
                 try {
                     return (IList)FormatterServices.GetUninitializedObject(genericType);
                 }
-                catch {
+                catch
+#endif
+                {
                     throw new NotSupportedException(
                         $"List<{elementType.Name}> is not supported in AOT environment. " +
                         $"Please register this type using SimpleJson.RegisterAotType().");
@@ -1965,7 +1975,7 @@ namespace RS.SimpleJsonUnity//GitHub.Unity.Json
             }
         }
 #endif
-    }
+            }
 
 #if SIMPLE_JSON_DATACONTRACT
 //    [GeneratedCode("simple-json", "1.0.0")]
@@ -2035,7 +2045,7 @@ namespace RS.SimpleJsonUnity//GitHub.Unity.Json
 
 #endif
 
-    [GeneratedCode("simple-json","1.0.0")]
+            [GeneratedCode("simple-json","1.0.0")]
 #if SIMPLE_JSON_INTERNAL
     internal
 #else
