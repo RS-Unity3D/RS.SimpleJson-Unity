@@ -634,6 +634,8 @@ namespace RS.SimpleJsonUnity//GitHub.Unity.Json
             EscapeTable['\n'] = 'n';
             EscapeTable['\r'] = 'r';
             EscapeTable['\t'] = 't';
+            //
+            InitializeCommonAotTypes();
         }
 #if SIMPLE_JSON_PFPARSE_IGNORE_LOWERCASE
         ///// <summary>
@@ -1357,7 +1359,7 @@ namespace RS.SimpleJsonUnity//GitHub.Unity.Json
             }
         }
 
-        public static void InitializeCommonAotTypes() {
+        private static void InitializeCommonAotTypes() {
             RegisterAotType("Dictionary<String,Object>",typeof(Dictionary<string,object>));
             RegisterAotType("Dictionary<String,String>",typeof(Dictionary<string,string>));
             RegisterAotType("Dictionary<String,Int32>",typeof(Dictionary<string,int>));
@@ -1828,7 +1830,7 @@ namespace RS.SimpleJsonUnity//GitHub.Unity.Json
             GetCache.Clear();
             SetCache.Clear();
         }
-
+#if SIMPLE_JSON_AOT
         private static IDictionary CreateDictionaryForAot(Type keyType,Type valueType) {
             // 添加更多类型组合以提高 AOT 兼容性
             if(keyType == typeof(string) && valueType == typeof(object))
@@ -1962,6 +1964,7 @@ namespace RS.SimpleJsonUnity//GitHub.Unity.Json
                 }
             }
         }
+#endif
     }
 
 #if SIMPLE_JSON_DATACONTRACT
@@ -2740,10 +2743,10 @@ namespace RS.SimpleJsonUnity//GitHub.Unity.Json
 
             public void Clear() {
 #if SIMPLE_JSON_SINGLE_THREADED
-                _dictionary.Clear();
+                _dictionary?.Clear();
 #else
                 lock(_lock) {
-                    _dictionary.Clear();
+                    _dictionary?.Clear();
                 }
 #endif
             }
